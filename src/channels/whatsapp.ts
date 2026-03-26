@@ -6,6 +6,7 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   WASocket,
+  downloadMediaMessage,
   fetchLatestWaWebVersion,
   makeCacheableSignalKeyStore,
   normalizeMessageContent,
@@ -15,6 +16,7 @@ import makeWASocket, {
 import {
   ASSISTANT_HAS_OWN_NUMBER,
   ASSISTANT_NAME,
+  GROUPS_DIR,
   STORE_DIR,
 } from '../config.js';
 import { getLastGroupSync, setLastGroupSync, updateChatName } from '../db.js';
@@ -203,15 +205,36 @@ export class WhatsAppChannel implements Channel {
           // Only deliver full message for registered groups
           const groups = this.opts.registeredGroups();
           if (groups[chatJid]) {
+            const hasImage = !!(
+              normalized.imageMessage ||
+              normalized.stickerMessage
+            );
             const content =
               normalized.conversation ||
               normalized.extendedTextMessage?.text ||
               normalized.imageMessage?.caption ||
               normalized.videoMessage?.caption ||
-              '';
+              (hasImage ? '[Image]' : '');
 
-            // Skip protocol messages with no text content (encryption keys, read receipts, etc.)
+            // Skip protocol messages with no text/media content
             if (!content) continue;
+
+            // Download image and save to group media folder
+            let image_path: string | undefined;
+            if (hasImage) {
+              try {
+                const group = groups[chatJid];
+                const mediaDir = path.join(GROUPS_DIR, group.folder, 'media');
+                fs.mkdirSync(mediaDir, { recursive: true });
+                const ext = normalized.stickerMessage ? 'webp' : 'jpg';
+                const filePath = path.join(mediaDir, `${msg.key.id ?? Date.now()}.${ext}`);
+                const buffer = await downloadMediaMessage(msg, 'buffer', {});
+                fs.writeFileSync(filePath, buffer as Buffer);
+                image_path = filePath;
+              } catch (err) {
+                logger.warn({ err }, 'Failed to download WhatsApp image');
+              }
+            }
 
             const sender = msg.key.participant || msg.key.remoteJid || '';
             const senderName = msg.pushName || sender.split('@')[0];
@@ -234,6 +257,7 @@ export class WhatsAppChannel implements Channel {
               timestamp,
               is_from_me: fromMe,
               is_bot_message: isBotMessage,
+              image_path,
             });
           }
         } catch (err) {

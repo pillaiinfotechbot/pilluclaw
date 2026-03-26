@@ -1,6 +1,10 @@
+import fs from 'fs';
+import path from 'path';
+
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { updateChatName } from '../db.js';
+import { GROUPS_DIR } from '../config.js';
 import { Channel, NewMessage } from '../types.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 
@@ -14,6 +18,14 @@ import { registerChannel, ChannelOpts } from './registry.js';
 const POLL_TIMEOUT_SECS = 25; // Telegram long-poll timeout
 const RETRY_DELAY_MS = 5_000; // Reconnect delay after errors
 const RATE_LIMIT_DELAY = 30_000; // Back-off on 429
+
+interface TgPhotoSize {
+  file_id: string;
+  file_unique_id: string;
+  width: number;
+  height: number;
+  file_size?: number;
+}
 
 interface TgMessage {
   message_id: number;
@@ -34,6 +46,9 @@ interface TgMessage {
   date: number;
   text?: string;
   caption?: string;
+  photo?: TgPhotoSize[];
+  sticker?: { file_id: string; is_animated?: boolean; is_video?: boolean };
+  document?: { file_id: string; file_name?: string; mime_type?: string };
 }
 
 interface TgUpdate {
@@ -221,7 +236,8 @@ export class TelegramChannel implements Channel {
     const groups = this.opts.registeredGroups();
     if (!groups[jid]) return;
 
-    const content = msg.text ?? msg.caption ?? '';
+    const hasPhoto = !!(msg.photo?.length || msg.sticker);
+    const content = msg.text ?? msg.caption ?? (hasPhoto ? '[Image]' : '');
     if (!content) return;
 
     // Sender info
@@ -237,6 +253,28 @@ export class TelegramChannel implements Channel {
       (this.botId !== null && senderId === this.botId)
     );
 
+    // Download photo/sticker and save to group media folder
+    let image_path: string | undefined;
+    if (hasPhoto && !isBotMessage) {
+      try {
+        const group = groups[jid];
+        const mediaDir = path.join(GROUPS_DIR, group.folder, 'media');
+        fs.mkdirSync(mediaDir, { recursive: true });
+        // Get the largest photo (last in array) or sticker file_id
+        const fileId = msg.sticker?.file_id ?? msg.photo![msg.photo!.length - 1].file_id;
+        const fileInfo = await this.apiCall<{ file_path: string }>('getFile', { file_id: fileId });
+        const fileUrl = `https://api.telegram.org/file/bot${this.token}/${fileInfo.file_path}`;
+        const res = await fetch(fileUrl, { signal: AbortSignal.timeout(30_000) });
+        const buffer = Buffer.from(await res.arrayBuffer());
+        const ext = msg.sticker ? 'webp' : 'jpg';
+        const filePath = path.join(mediaDir, `${msg.message_id}.${ext}`);
+        fs.writeFileSync(filePath, buffer);
+        image_path = filePath;
+      } catch (err) {
+        logger.warn({ err }, 'Failed to download Telegram photo');
+      }
+    }
+
     const newMsg: NewMessage = {
       id: String(msg.message_id),
       chat_jid: jid,
@@ -246,6 +284,7 @@ export class TelegramChannel implements Channel {
       timestamp,
       is_from_me: isBotMessage,
       is_bot_message: isBotMessage,
+      image_path,
     };
 
     this.opts.onMessage(jid, newMsg);
