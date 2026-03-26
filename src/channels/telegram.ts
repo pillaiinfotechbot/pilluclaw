@@ -261,10 +261,15 @@ export class TelegramChannel implements Channel {
         const mediaDir = path.join(GROUPS_DIR, group.folder, 'media');
         fs.mkdirSync(mediaDir, { recursive: true });
         // Get the largest photo (last in array) or sticker file_id
-        const fileId = msg.sticker?.file_id ?? msg.photo![msg.photo!.length - 1].file_id;
-        const fileInfo = await this.apiCall<{ file_path: string }>('getFile', { file_id: fileId });
+        const fileId =
+          msg.sticker?.file_id ?? msg.photo![msg.photo!.length - 1].file_id;
+        const fileInfo = await this.apiCall<{ file_path: string }>('getFile', {
+          file_id: fileId,
+        });
         const fileUrl = `https://api.telegram.org/file/bot${this.token}/${fileInfo.file_path}`;
-        const res = await fetch(fileUrl, { signal: AbortSignal.timeout(30_000) });
+        const res = await fetch(fileUrl, {
+          signal: AbortSignal.timeout(30_000),
+        });
         const buffer = Buffer.from(await res.arrayBuffer());
         const ext = msg.sticker ? 'webp' : 'jpg';
         const filePath = path.join(mediaDir, `${msg.message_id}.${ext}`);

@@ -170,8 +170,7 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   const groupsForJid = registeredGroups[chatJid];
   if (!groupsForJid || groupsForJid.length === 0) return true;
   // Pick the best matching group based on trigger (main group as fallback)
-  const group =
-    groupsForJid.find((g) => g.isMain) || groupsForJid[0];
+  const group = groupsForJid.find((g) => g.isMain) || groupsForJid[0];
 
   const channel = findChannel(channels, chatJid);
   if (!channel) {

@@ -206,8 +206,7 @@ export class WhatsAppChannel implements Channel {
           const groups = this.opts.registeredGroups();
           if (groups[chatJid]?.length) {
             const hasImage = !!(
-              normalized.imageMessage ||
-              normalized.stickerMessage
+              normalized.imageMessage || normalized.stickerMessage
             );
             const content =
               normalized.conversation ||
@@ -227,7 +226,10 @@ export class WhatsAppChannel implements Channel {
                 const mediaDir = path.join(GROUPS_DIR, group.folder, 'media');
                 fs.mkdirSync(mediaDir, { recursive: true });
                 const ext = normalized.stickerMessage ? 'webp' : 'jpg';
-                const filePath = path.join(mediaDir, `${msg.key.id ?? Date.now()}.${ext}`);
+                const filePath = path.join(
+                  mediaDir,
+                  `${msg.key.id ?? Date.now()}.${ext}`,
+                );
                 const buffer = await downloadMediaMessage(msg, 'buffer', {});
                 fs.writeFileSync(filePath, buffer as Buffer);
                 image_path = filePath;

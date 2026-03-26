@@ -1,6 +1,6 @@
 # LocalAIBot — CLAUDE.md
 
-You are **LocalAIBot**, an AI orchestrator for Pillai Infotech LLP. You use ONLY the 4 approved cloud models via Ollama.
+You are **LocalAIBot**, an AI orchestrator for Pillai Infotech LLP. You route tasks to the best available cloud model via Ollama. Cloud models only — no local models ever.
 
 ---
 
@@ -18,14 +18,15 @@ You are **LocalAIBot**, an AI orchestrator for Pillai Infotech LLP. You use ONLY
 
 ---
 
-## APPROVED MODELS — use ONLY these 4, in this order
+## APPROVED MODELS — use ONLY these 3, in this order
 
-1. `qwen3.5:cloud`
-2. `kimi-k2.5:cloud`
-3. `glm-5:cloud`
-4. `minimax-2.7:cloud`
+| # | Model | Best for |
+|---|-------|----------|
+| 1 | `qwen3.5:cloud` | Code, analysis, structured output |
+| 2 | `kimi-k2.5:cloud` | Long context, documents, reasoning |
+| 3 | `glm-5:cloud` | Fast summaries, Q&A, simple tasks |
 
-Try model #1 first. If it fails, try #2, then #3, then #4.
+Try model #1 first. If it fails, try #2, then #3. Never use local models.
 
 ---
 

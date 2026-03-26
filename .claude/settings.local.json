@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git remote:*)",
+      "Bash(bash setup.sh 2>&1)",
+      "Bash(npx tsx:*)",
+      "Bash(open -a Docker)",
+      "Bash(docker info:*)",
+      "Bash(git fetch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(GIT_EDITOR=true git merge --continue)",
+      "Bash(npm install:*)",
+      "Bash(npm run:*)",
+      "Bash(npx vitest:*)",
+      "Bash(node:*)",
+      "Bash(launchctl unload:*)",
+      "Bash(cat /Users/mac/Development/pilluclaw/groups/*/CLAUDE.md)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(mkdir -p /Users/mac/Development/CMDCenterFiles)",
+      "Bash(mkdir -p /Users/mac/Development/CMDCenterApps)",
+      "Bash(sqlite3:*)",
+      "Bash(git commit:*)",
+      "Bash(tail -20 /Users/mac/Development/pilluclaw/logs/*.log)",
+      "Bash(rsync:*)",
+      "Bash(/Users/mac/Development/maddyclaw/groups/main/CLAUDE.md:*)",
+      "Bash(./container/build.sh 2>&1)",
+      "Read(//Users/mac/Library/Logs/nanoclaw/**)",
+      "Read(//Users/mac/Library/Logs/**)",
+      "Bash(journalctl --user -u nanoclaw -n 50)",
+      "Bash(find /Users/mac/Development/pilluclaw/src -name *.ts)",
+      "Bash(curl -s \"https://api.telegram.org/bot8599040063:AAEX4HlMKKoRLX8aKlF805M0_2NW-o9pkVM/getMe\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d[''''result''''][''''username''''], d[''''result''''][''''first_name'''']\\)\")",
+      "Bash(find /Users/mac/Development/pilluclaw -name *.db -o -name state.json)",
+      "Bash(curl -s \"https://api.telegram.org/bot8599040063:AAEX4HlMKKoRLX8aKlF805M0_2NW-o9pkVM/getUpdates?limit=5\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(u.get\\(''''update_id''''\\), u.get\\(''''message'''',{}\\).get\\(''''text'''',''''''''\\), u.get\\(''''message'''',{}\\).get\\(''''chat'''',{}\\).get\\(''''id'''',''''''''\\)\\) for u in d.get\\(''''result'''',[]\\)]\")",
+      "Bash(ps -p 10031 -o pid,ppid,args)",
+      "Bash(curl:*)"
+    ]
+  }
+}
