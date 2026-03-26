@@ -9,6 +9,20 @@ import {
   TIMEZONE,
   TRIGGER_PATTERN,
 } from './config.js';
+
+// Build a per-group trigger regex — falls back to global TRIGGER_PATTERN
+// if the group has no custom trigger or if it matches ASSISTANT_NAME.
+function groupTriggerPattern(groupTrigger?: string): RegExp {
+  if (
+    groupTrigger &&
+    groupTrigger.replace(/^@/, '').toLowerCase() !==
+      ASSISTANT_NAME.toLowerCase()
+  ) {
+    const escaped = groupTrigger.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`^${escaped}\\b`, 'i');
+  }
+  return TRIGGER_PATTERN;
+}
 import { startCredentialProxy } from './credential-proxy.js';
 import './channels/index.js';
 import {
@@ -171,9 +185,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
     const allowlistCfg = loadSenderAllowlist();
+    const triggerRe = groupTriggerPattern(group.trigger);
     const hasTrigger = missedMessages.some(
       (m) =>
-        TRIGGER_PATTERN.test(m.content.trim()) &&
+        triggerRe.test(m.content.trim()) &&
         (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
     );
     if (!hasTrigger) return true;
@@ -399,9 +414,10 @@ async function startMessageLoop(): Promise<void> {
           // context when a trigger eventually arrives.
           if (needsTrigger) {
             const allowlistCfg = loadSenderAllowlist();
+            const triggerRe = groupTriggerPattern(group.trigger);
             const hasTrigger = groupMessages.some(
               (m) =>
-                TRIGGER_PATTERN.test(m.content.trim()) &&
+                triggerRe.test(m.content.trim()) &&
                 (m.is_from_me ||
                   isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
             );
