@@ -219,7 +219,11 @@ export class TelegramChannel implements Channel {
 
     // Only deliver message for registered groups
     const groups = this.opts.registeredGroups();
-    if (!groups[jid]) return;
+    logger.warn({ jid, registeredJids: Object.keys(groups), content: (msg.text ?? '').slice(0, 50) }, 'Telegram handleMessage [debug]');
+    if (!groups[jid]) {
+      logger.warn({ jid, registeredJids: Object.keys(groups) }, 'Telegram message dropped — JID not registered');
+      return;
+    }
 
     const content = msg.text ?? msg.caption ?? '';
     if (!content) return;
