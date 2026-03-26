@@ -101,32 +101,60 @@ export class TelegramChannel implements Channel {
     });
   }
 
+  // Telegram's max message length is 4096 UTF-16 code units.
+  private static readonly MAX_MSG_LEN = 4096;
+
+  /** Split text into chunks that fit within Telegram's message limit. */
+  private splitMessage(text: string): string[] {
+    if (text.length <= TelegramChannel.MAX_MSG_LEN) return [text];
+    const chunks: string[] = [];
+    let remaining = text;
+    while (remaining.length > 0) {
+      if (remaining.length <= TelegramChannel.MAX_MSG_LEN) {
+        chunks.push(remaining);
+        break;
+      }
+      // Prefer splitting at a newline within the limit
+      let splitAt = remaining.lastIndexOf('\n', TelegramChannel.MAX_MSG_LEN);
+      if (splitAt <= 0) splitAt = TelegramChannel.MAX_MSG_LEN;
+      chunks.push(remaining.slice(0, splitAt));
+      remaining = remaining.slice(splitAt).replace(/^\n/, '');
+    }
+    return chunks;
+  }
+
   async sendMessage(jid: string, text: string): Promise<void> {
     if (!this.token || !this.connected) {
       logger.warn({ jid }, 'Telegram not connected — message dropped');
       return;
     }
     const chatId = this.jidToChatId(jid);
-    try {
-      await this.apiCall('sendMessage', {
-        chat_id: chatId,
-        text,
-        parse_mode: 'Markdown',
-      });
-      logger.info({ jid, length: text.length }, 'Telegram message sent');
-    } catch (err: unknown) {
-      // Fallback: retry without Markdown in case of formatting errors
-      const errMsg = err instanceof Error ? err.message : String(err);
-      if (
-        errMsg.includes('parse') ||
-        errMsg.includes('markdown') ||
-        errMsg.includes('entities')
-      ) {
-        logger.warn({ jid }, 'Markdown parse error — retrying as plain text');
-        await this.apiCall('sendMessage', { chat_id: chatId, text });
-      } else {
-        logger.error({ err, jid }, 'Failed to send Telegram message');
-        throw err;
+    const chunks = this.splitMessage(text);
+    for (const chunk of chunks) {
+      try {
+        await this.apiCall('sendMessage', {
+          chat_id: chatId,
+          text: chunk,
+          parse_mode: 'Markdown',
+        });
+        logger.info(
+          { jid, length: chunk.length, chunks: chunks.length },
+          'Telegram message sent',
+        );
+      } catch (err: unknown) {
+        // Fallback: retry without Markdown in case of formatting errors
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (
+          errMsg.includes('parse') ||
+          errMsg.includes('markdown') ||
+          errMsg.includes('entities')
+        ) {
+          logger.warn({ jid }, 'Markdown parse error — retrying as plain text');
+          await this.apiCall('sendMessage', { chat_id: chatId, text: chunk });
+        } else {
+          logger.error({ err, jid }, 'Failed to send Telegram message');
+          throw err;
+        }
       }
     }
   }
