@@ -169,16 +169,12 @@ export function _setRegisteredGroups(
 async function processGroupMessages(chatJid: string): Promise<boolean> {
   const groupsForJid = registeredGroups[chatJid];
   if (!groupsForJid || groupsForJid.length === 0) return true;
-  // Pick the best matching group based on trigger (main group as fallback)
-  const group = groupsForJid.find((g) => g.isMain) || groupsForJid[0];
 
   const channel = findChannel(channels, chatJid);
   if (!channel) {
     logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
     return true;
   }
-
-  const isMainGroup = group.isMain === true;
 
   const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
   const missedMessages = getMessagesSince(
@@ -189,9 +185,28 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
   if (missedMessages.length === 0) return true;
 
+  // Pick the best matching group based on trigger (main group as fallback).
+  // For JIDs with multiple groups (e.g. several bots in one Telegram group),
+  // we must select the group whose trigger matches the pending messages —
+  // not just the first group in the array.
+  const allowlistCfg = loadSenderAllowlist();
+  const group =
+    groupsForJid.find((g) => g.isMain) ||
+    groupsForJid.find((g) => {
+      if (g.requiresTrigger === false) return true;
+      const triggerRe = groupTriggerPattern(g.trigger);
+      return missedMessages.some(
+        (m) =>
+          triggerRe.test(m.content.trim()) &&
+          (m.is_from_me || isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+      );
+    }) ||
+    groupsForJid[0];
+
+  const isMainGroup = group.isMain === true;
+
   // For non-main groups, check if trigger is required and present
   if (!isMainGroup && group.requiresTrigger !== false) {
-    const allowlistCfg = loadSenderAllowlist();
     const triggerRe = groupTriggerPattern(group.trigger);
     const hasTrigger = missedMessages.some(
       (m) =>
