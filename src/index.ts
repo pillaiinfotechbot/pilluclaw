@@ -59,6 +59,7 @@ import {
   shouldDropMessage,
 } from './sender-allowlist.js';
 import { startSchedulerLoop } from './task-scheduler.js';
+import { startCmdCenterPoller } from './cmdcenter-poller.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
@@ -685,6 +686,12 @@ async function main(): Promise<void> {
       if (text) await channel.sendMessage(jid, text);
     },
   });
+  // Poll CMDCenter for tasks delegated to nanoclaw bots every 2 minutes.
+  // Bots cannot receive their own Telegram messages via getUpdates, so
+  // the PHP heartbeat's Bot API delivery is invisible to nanoclaw.
+  // This poller injects those tasks directly into the message queue.
+  startCmdCenterPoller(queue);
+
   startIpcWatcher({
     sendMessage: (jid, text) => {
       const channel = findChannel(channels, jid);
