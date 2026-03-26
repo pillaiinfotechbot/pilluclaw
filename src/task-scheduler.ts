@@ -63,7 +63,7 @@ export function computeNextRun(task: ScheduledTask): string | null {
 }
 
 export interface SchedulerDependencies {
-  registeredGroups: () => Record<string, RegisteredGroup>;
+  registeredGroups: () => Record<string, RegisteredGroup[]>;
   getSessions: () => Record<string, string>;
   queue: GroupQueue;
   onProcess: (
@@ -109,9 +109,9 @@ async function runTask(
   );
 
   const groups = deps.registeredGroups();
-  const group = Object.values(groups).find(
-    (g) => g.folder === task.group_folder,
-  );
+  const group = Object.values(groups)
+    .flat()
+    .find((g) => g.folder === task.group_folder);
 
   if (!group) {
     logger.error(

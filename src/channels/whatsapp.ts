@@ -34,7 +34,7 @@ const GROUP_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export interface WhatsAppChannelOpts {
   onMessage: OnInboundMessage;
   onChatMetadata: OnChatMetadata;
-  registeredGroups: () => Record<string, RegisteredGroup>;
+  registeredGroups: () => Record<string, RegisteredGroup[]>;
 }
 
 export class WhatsAppChannel implements Channel {
@@ -204,7 +204,7 @@ export class WhatsAppChannel implements Channel {
 
           // Only deliver full message for registered groups
           const groups = this.opts.registeredGroups();
-          if (groups[chatJid]) {
+          if (groups[chatJid]?.length) {
             const hasImage = !!(
               normalized.imageMessage ||
               normalized.stickerMessage
@@ -223,7 +223,7 @@ export class WhatsAppChannel implements Channel {
             let image_path: string | undefined;
             if (hasImage) {
               try {
-                const group = groups[chatJid];
+                const group = groups[chatJid][0];
                 const mediaDir = path.join(GROUPS_DIR, group.folder, 'media');
                 fs.mkdirSync(mediaDir, { recursive: true });
                 const ext = normalized.stickerMessage ? 'webp' : 'jpg';

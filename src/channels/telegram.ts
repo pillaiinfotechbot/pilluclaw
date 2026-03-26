@@ -234,7 +234,7 @@ export class TelegramChannel implements Channel {
 
     // Only deliver message for registered groups
     const groups = this.opts.registeredGroups();
-    if (!groups[jid]) return;
+    if (!groups[jid]?.length) return;
 
     const hasPhoto = !!(msg.photo?.length || msg.sticker);
     const content = msg.text ?? msg.caption ?? (hasPhoto ? '[Image]' : '');
@@ -257,7 +257,7 @@ export class TelegramChannel implements Channel {
     let image_path: string | undefined;
     if (hasPhoto && !isBotMessage) {
       try {
-        const group = groups[jid];
+        const group = groups[jid][0];
         const mediaDir = path.join(GROUPS_DIR, group.folder, 'media');
         fs.mkdirSync(mediaDir, { recursive: true });
         // Get the largest photo (last in array) or sticker file_id

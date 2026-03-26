@@ -120,6 +120,36 @@ function createSchema(database: Database.Database): void {
     /* column already exists */
   }
 
+  // Migrate registered_groups to use folder as PRIMARY KEY (allows multiple groups per JID)
+  try {
+    // Only run if jid is still the primary key (check by trying to get table info)
+    const tableInfo = database
+      .prepare(`PRAGMA table_info(registered_groups)`)
+      .all() as Array<{ name: string; pk: number }>;
+    const jidCol = tableInfo.find((c) => c.name === 'jid');
+    if (jidCol && jidCol.pk === 1) {
+      // jid is still the primary key — run migration
+      database.exec(`
+        CREATE TABLE IF NOT EXISTS registered_groups_new (
+          folder TEXT PRIMARY KEY,
+          jid TEXT NOT NULL,
+          name TEXT NOT NULL,
+          trigger_pattern TEXT NOT NULL,
+          added_at TEXT NOT NULL,
+          container_config TEXT,
+          requires_trigger INTEGER DEFAULT 1,
+          is_main INTEGER DEFAULT 0
+        );
+        INSERT OR IGNORE INTO registered_groups_new SELECT folder, jid, name, trigger_pattern, added_at, container_config, requires_trigger, is_main FROM registered_groups;
+        DROP TABLE registered_groups;
+        ALTER TABLE registered_groups_new RENAME TO registered_groups;
+        CREATE INDEX IF NOT EXISTS idx_registered_groups_jid ON registered_groups(jid);
+      `);
+    }
+  } catch {
+    /* already migrated or migration not needed */
+  }
+
   // Add channel and is_group columns if they don't exist (migration for existing DBs)
   try {
     database.exec(`ALTER TABLE chats ADD COLUMN channel TEXT`);
@@ -588,17 +618,58 @@ export function getRegisteredGroup(
   };
 }
 
+export function getRegisteredGroupsByJid(
+  jid: string,
+): Array<RegisteredGroup & { jid: string }> {
+  const rows = db
+    .prepare('SELECT * FROM registered_groups WHERE jid = ?')
+    .all(jid) as Array<{
+    jid: string;
+    name: string;
+    folder: string;
+    trigger_pattern: string;
+    added_at: string;
+    container_config: string | null;
+    requires_trigger: number | null;
+    is_main: number | null;
+  }>;
+  const result: Array<RegisteredGroup & { jid: string }> = [];
+  for (const row of rows) {
+    if (!isValidGroupFolder(row.folder)) {
+      logger.warn(
+        { jid: row.jid, folder: row.folder },
+        'Skipping registered group with invalid folder',
+      );
+      continue;
+    }
+    result.push({
+      jid: row.jid,
+      name: row.name,
+      folder: row.folder,
+      trigger: row.trigger_pattern,
+      added_at: row.added_at,
+      containerConfig: row.container_config
+        ? JSON.parse(row.container_config)
+        : undefined,
+      requiresTrigger:
+        row.requires_trigger === null ? undefined : row.requires_trigger === 1,
+      isMain: row.is_main === 1 ? true : undefined,
+    });
+  }
+  return result;
+}
+
 export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   if (!isValidGroupFolder(group.folder)) {
     throw new Error(`Invalid group folder "${group.folder}" for JID ${jid}`);
   }
   db.prepare(
-    `INSERT OR REPLACE INTO registered_groups (jid, name, folder, trigger_pattern, added_at, container_config, requires_trigger, is_main)
+    `INSERT OR REPLACE INTO registered_groups (folder, jid, name, trigger_pattern, added_at, container_config, requires_trigger, is_main)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
+    group.folder,
     jid,
     group.name,
-    group.folder,
     group.trigger,
     group.added_at,
     group.containerConfig ? JSON.stringify(group.containerConfig) : null,
@@ -607,7 +678,7 @@ export function setRegisteredGroup(jid: string, group: RegisteredGroup): void {
   );
 }
 
-export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
+export function getAllRegisteredGroups(): Record<string, RegisteredGroup[]> {
   const rows = db.prepare('SELECT * FROM registered_groups').all() as Array<{
     jid: string;
     name: string;
@@ -618,7 +689,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
     requires_trigger: number | null;
     is_main: number | null;
   }>;
-  const result: Record<string, RegisteredGroup> = {};
+  const result: Record<string, RegisteredGroup[]> = {};
   for (const row of rows) {
     if (!isValidGroupFolder(row.folder)) {
       logger.warn(
@@ -627,7 +698,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
       );
       continue;
     }
-    result[row.jid] = {
+    const group: RegisteredGroup = {
       name: row.name,
       folder: row.folder,
       trigger: row.trigger_pattern,
@@ -639,6 +710,7 @@ export function getAllRegisteredGroups(): Record<string, RegisteredGroup> {
         row.requires_trigger === null ? undefined : row.requires_trigger === 1,
       isMain: row.is_main === 1 ? true : undefined,
     };
+    result[row.jid] = [...(result[row.jid] || []), group];
   }
   return result;
 }

@@ -12,7 +12,7 @@ import { RegisteredGroup } from './types.js';
 
 export interface IpcDeps {
   sendMessage: (jid: string, text: string) => Promise<void>;
-  registeredGroups: () => Record<string, RegisteredGroup>;
+  registeredGroups: () => Record<string, RegisteredGroup[]>;
   registerGroup: (jid: string, group: RegisteredGroup) => void;
   syncGroups: (force: boolean) => Promise<void>;
   getAvailableGroups: () => AvailableGroup[];
@@ -55,8 +55,10 @@ export function startIpcWatcher(deps: IpcDeps): void {
 
     // Build folder→isMain lookup from registered groups
     const folderIsMain = new Map<string, boolean>();
-    for (const group of Object.values(registeredGroups)) {
-      if (group.isMain) folderIsMain.set(group.folder, true);
+    for (const groups of Object.values(registeredGroups)) {
+      for (const group of groups) {
+        if (group.isMain) folderIsMain.set(group.folder, true);
+      }
     }
 
     for (const sourceGroup of groupFolders) {
@@ -76,10 +78,11 @@ export function startIpcWatcher(deps: IpcDeps): void {
               const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
               if (data.type === 'message' && data.chatJid && data.text) {
                 // Authorization: verify this group can send to this chatJid
-                const targetGroup = registeredGroups[data.chatJid];
+                const targetGroups = registeredGroups[data.chatJid];
                 if (
                   isMain ||
-                  (targetGroup && targetGroup.folder === sourceGroup)
+                  (targetGroups &&
+                    targetGroups.some((g) => g.folder === sourceGroup))
                 ) {
                   await deps.sendMessage(data.chatJid, data.text);
                   logger.info(
@@ -189,7 +192,10 @@ export async function processTaskIpc(
       ) {
         // Resolve the target group from JID
         const targetJid = data.targetJid as string;
-        const targetGroupEntry = registeredGroups[targetJid];
+        const targetGroupEntries = registeredGroups[targetJid];
+        const targetGroupEntry =
+          targetGroupEntries?.find((g) => g.folder === sourceGroup) ||
+          targetGroupEntries?.[0];
 
         if (!targetGroupEntry) {
           logger.warn(

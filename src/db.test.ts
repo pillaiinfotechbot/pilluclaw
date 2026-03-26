@@ -462,8 +462,9 @@ describe('registered group isMain', () => {
     });
 
     const groups = getAllRegisteredGroups();
-    const group = groups['main@s.whatsapp.net'];
-    expect(group).toBeDefined();
+    const groupArr = groups['main@s.whatsapp.net'];
+    expect(groupArr).toBeDefined();
+    const group = groupArr[0];
     expect(group.isMain).toBe(true);
     expect(group.folder).toBe('whatsapp_main');
   });
@@ -477,8 +478,9 @@ describe('registered group isMain', () => {
     });
 
     const groups = getAllRegisteredGroups();
-    const group = groups['group@g.us'];
-    expect(group).toBeDefined();
+    const groupArr = groups['group@g.us'];
+    expect(groupArr).toBeDefined();
+    const group = groupArr[0];
     expect(group.isMain).toBeUndefined();
   });
 });

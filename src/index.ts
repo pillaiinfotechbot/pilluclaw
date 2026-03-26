@@ -79,7 +79,7 @@ export { escapeXml, formatMessages } from './router.js';
 
 let lastTimestamp = '';
 let sessions: Record<string, string> = {};
-let registeredGroups: Record<string, RegisteredGroup> = {};
+let registeredGroups: Record<string, RegisteredGroup[]> = {};
 let lastAgentTimestamp: Record<string, string> = {};
 let messageLoopRunning = false;
 
@@ -120,7 +120,12 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
     return;
   }
 
-  registeredGroups[jid] = group;
+  if (!registeredGroups[jid]) registeredGroups[jid] = [];
+  // Remove existing entry for same folder if present
+  registeredGroups[jid] = registeredGroups[jid].filter(
+    (g) => g.folder !== group.folder,
+  );
+  registeredGroups[jid].push(group);
   setRegisteredGroup(jid, group);
 
   // Create group folder
@@ -152,7 +157,7 @@ export function getAvailableGroups(): import('./container-runner.js').AvailableG
 
 /** @internal - exported for testing */
 export function _setRegisteredGroups(
-  groups: Record<string, RegisteredGroup>,
+  groups: Record<string, RegisteredGroup[]>,
 ): void {
   registeredGroups = groups;
 }
@@ -162,8 +167,11 @@ export function _setRegisteredGroups(
  * Called by the GroupQueue when it's this group's turn.
  */
 async function processGroupMessages(chatJid: string): Promise<boolean> {
-  const group = registeredGroups[chatJid];
-  if (!group) return true;
+  const groupsForJid = registeredGroups[chatJid];
+  if (!groupsForJid || groupsForJid.length === 0) return true;
+  // Pick the best matching group based on trigger (main group as fallback)
+  const group =
+    groupsForJid.find((g) => g.isMain) || groupsForJid[0];
 
   const channel = findChannel(channels, chatJid);
   if (!channel) {
@@ -397,14 +405,32 @@ async function startMessageLoop(): Promise<void> {
         }
 
         for (const [chatJid, groupMessages] of messagesByGroup) {
-          const group = registeredGroups[chatJid];
-          if (!group) continue;
+          const groupsForJid = registeredGroups[chatJid];
+          if (!groupsForJid || groupsForJid.length === 0) continue;
 
           const channel = findChannel(channels, chatJid);
           if (!channel) {
             logger.warn({ chatJid }, 'No channel owns JID, skipping messages');
             continue;
           }
+
+          // Find the matching group by trigger word in this batch of messages
+          const allowlistCfg = loadSenderAllowlist();
+          const group =
+            groupsForJid.find((g) => {
+              if (g.isMain) return false; // main group uses different matching
+              const triggerRe = groupTriggerPattern(g.trigger);
+              return (
+                groupMessages.some(
+                  (m) =>
+                    triggerRe.test(m.content.trim()) &&
+                    (m.is_from_me ||
+                      isTriggerAllowed(chatJid, m.sender, allowlistCfg)),
+                ) || g.requiresTrigger === false
+              );
+            }) ||
+            groupsForJid.find((g) => g.isMain) ||
+            groupsForJid[0];
 
           const isMainGroup = group.isMain === true;
           const needsTrigger = !isMainGroup && group.requiresTrigger !== false;
@@ -413,7 +439,6 @@ async function startMessageLoop(): Promise<void> {
           // Non-trigger messages accumulate in DB and get pulled as
           // context when a trigger eventually arrives.
           if (needsTrigger) {
-            const allowlistCfg = loadSenderAllowlist();
             const triggerRe = groupTriggerPattern(group.trigger);
             const hasTrigger = groupMessages.some(
               (m) =>
@@ -467,12 +492,13 @@ async function startMessageLoop(): Promise<void> {
  * Handles crash between advancing lastTimestamp and processing messages.
  */
 function recoverPendingMessages(): void {
-  for (const [chatJid, group] of Object.entries(registeredGroups)) {
+  for (const [chatJid, groups] of Object.entries(registeredGroups)) {
     const sinceTimestamp = lastAgentTimestamp[chatJid] || '';
     const pending = getMessagesSince(chatJid, sinceTimestamp, ASSISTANT_NAME);
     if (pending.length > 0) {
+      const groupName = groups[0]?.name ?? chatJid;
       logger.info(
-        { group: group.name, pendingCount: pending.length },
+        { group: groupName, pendingCount: pending.length },
         'Recovery: found unprocessed messages',
       );
       queue.enqueueMessageCheck(chatJid);
@@ -515,8 +541,9 @@ async function main(): Promise<void> {
     chatJid: string,
     msg: NewMessage,
   ): Promise<void> {
-    const group = registeredGroups[chatJid];
-    if (!group?.isMain) {
+    const groupsForJid = registeredGroups[chatJid];
+    const group = groupsForJid?.find((g) => g.isMain);
+    if (!group) {
       logger.warn(
         { chatJid, sender: msg.sender },
         'Remote control rejected: not main group',
@@ -564,7 +591,11 @@ async function main(): Promise<void> {
       }
 
       // Sender allowlist drop mode: discard messages from denied senders before storing
-      if (!msg.is_from_me && !msg.is_bot_message && registeredGroups[chatJid]) {
+      if (
+        !msg.is_from_me &&
+        !msg.is_bot_message &&
+        registeredGroups[chatJid]?.length
+      ) {
         const cfg = loadSenderAllowlist();
         if (
           shouldDropMessage(chatJid, cfg) &&
@@ -658,8 +689,10 @@ async function main(): Promise<void> {
         status: t.status,
         next_run: t.next_run,
       }));
-      for (const group of Object.values(registeredGroups)) {
-        writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
+      for (const groups of Object.values(registeredGroups)) {
+        for (const group of groups) {
+          writeTasksSnapshot(group.folder, group.isMain === true, taskRows);
+        }
       }
     },
   });
