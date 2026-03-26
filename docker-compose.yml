@@ -1,0 +1,17 @@
+services:
+  nanoclaw:
+    build: .
+    container_name: nanoclaw
+    restart: unless-stopped
+
+    volumes:
+      # Persistent storage — WhatsApp auth, SQLite DB, group workspaces
+      - ./store:/app/store
+      - ./data:/app/data
+      - ./groups:/app/groups
+      - ./logs:/app/logs
+      # Docker socket so nanoclaw can spawn agent sub-containers
+      - /var/run/docker.sock:/var/run/docker.sock
+
+    environment:
+      - NODE_ENV=production
