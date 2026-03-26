@@ -1,10 +1,7 @@
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { updateChatName } from '../db.js';
-import {
-  Channel,
-  NewMessage,
-} from '../types.js';
+import { Channel, NewMessage } from '../types.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -14,9 +11,9 @@ import { registerChannel, ChannelOpts } from './registry.js';
 // Bot token:   read from .env → TELEGRAM_BOT_TOKEN
 // ─────────────────────────────────────────────────────────────────────────────
 
-const POLL_TIMEOUT_SECS = 25;     // Telegram long-poll timeout
-const RETRY_DELAY_MS    = 5_000;  // Reconnect delay after errors
-const RATE_LIMIT_DELAY  = 30_000; // Back-off on 429
+const POLL_TIMEOUT_SECS = 25; // Telegram long-poll timeout
+const RETRY_DELAY_MS = 5_000; // Reconnect delay after errors
+const RATE_LIMIT_DELAY = 30_000; // Back-off on 429
 
 interface TgMessage {
   message_id: number;
@@ -29,9 +26,9 @@ interface TgMessage {
   };
   chat: {
     id: number;
-    title?: string;      // groups
+    title?: string; // groups
     first_name?: string; // DMs
-    last_name?: string;  // DMs
+    last_name?: string; // DMs
     type: 'private' | 'group' | 'supergroup' | 'channel';
   };
   date: number;
@@ -74,7 +71,10 @@ export class TelegramChannel implements Channel {
     // Verify token and get bot identity
     const me = await this.apiCall<{ id: number; username?: string }>('getMe');
     this.botId = me.id;
-    logger.info({ botId: me.id, username: me.username }, 'Telegram bot connected');
+    logger.info(
+      { botId: me.id, username: me.username },
+      'Telegram bot connected',
+    );
 
     this.connected = true;
     this.polling = true;
@@ -102,7 +102,11 @@ export class TelegramChannel implements Channel {
     } catch (err: unknown) {
       // Fallback: retry without Markdown in case of formatting errors
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes('parse') || errMsg.includes('markdown') || errMsg.includes('entities')) {
+      if (
+        errMsg.includes('parse') ||
+        errMsg.includes('markdown') ||
+        errMsg.includes('entities')
+      ) {
         logger.warn({ jid }, 'Markdown parse error — retrying as plain text');
         await this.apiCall('sendMessage', { chat_id: chatId, text });
       } else {
@@ -130,7 +134,10 @@ export class TelegramChannel implements Channel {
     if (!this.token || !this.connected) return;
     try {
       const chatId = this.jidToChatId(jid);
-      await this.apiCall('sendChatAction', { chat_id: chatId, action: 'typing' });
+      await this.apiCall('sendChatAction', {
+        chat_id: chatId,
+        action: 'typing',
+      });
     } catch (err) {
       logger.debug({ err, jid }, 'Telegram setTyping failed');
     }
@@ -150,10 +157,14 @@ export class TelegramChannel implements Channel {
         for (const update of updates) {
           try {
             this.offset = update.update_id + 1;
-            const msg = update.message ?? update.channel_post ?? update.edited_message;
+            const msg =
+              update.message ?? update.channel_post ?? update.edited_message;
             if (msg) await this.handleMessage(msg);
           } catch (err) {
-            logger.error({ err, update_id: update.update_id }, 'Error handling Telegram update');
+            logger.error(
+              { err, update_id: update.update_id },
+              'Error handling Telegram update',
+            );
           }
         }
       } catch (err: unknown) {
@@ -169,12 +180,17 @@ export class TelegramChannel implements Channel {
         }
 
         if (errMsg.includes('429')) {
-          logger.warn(`Telegram rate limited — backing off ${RATE_LIMIT_DELAY}ms`);
+          logger.warn(
+            `Telegram rate limited — backing off ${RATE_LIMIT_DELAY}ms`,
+          );
           await this.sleep(RATE_LIMIT_DELAY);
           continue;
         }
 
-        logger.warn({ err }, `Telegram poll error — retrying in ${RETRY_DELAY_MS}ms`);
+        logger.warn(
+          { err },
+          `Telegram poll error — retrying in ${RETRY_DELAY_MS}ms`,
+        );
         await this.sleep(RETRY_DELAY_MS);
       }
     }
@@ -188,9 +204,10 @@ export class TelegramChannel implements Channel {
     const isGroup = msg.chat.type !== 'private';
 
     // Determine chat name
-    const chatName = msg.chat.title
-      ?? [msg.chat.first_name, msg.chat.last_name].filter(Boolean).join(' ')
-      ?? String(chatId);
+    const chatName =
+      msg.chat.title ??
+      [msg.chat.first_name, msg.chat.last_name].filter(Boolean).join(' ') ??
+      String(chatId);
 
     const timestamp = new Date(msg.date * 1000).toISOString();
 
@@ -209,11 +226,10 @@ export class TelegramChannel implements Channel {
 
     // Sender info
     const senderId = msg.from?.id ?? 0;
-    const senderName = [msg.from?.first_name, msg.from?.last_name]
-      .filter(Boolean)
-      .join(' ')
-      || msg.from?.username
-      || String(senderId);
+    const senderName =
+      [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') ||
+      msg.from?.username ||
+      String(senderId);
 
     // Bot detection: message came from this bot
     const isBotMessage = !!(
