@@ -115,6 +115,17 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       const lastInjected = injectedTaskIds.get(task.id);
       if (lastInjected && Date.now() - lastInjected < INJECT_TTL_MS) continue;
 
+      // Respect max_retries: if exhausted, skip (heartbeat/watchdog will escalate)
+      const retryCount = task.retry_count ?? 0;
+      const maxRetries = task.max_retries ?? 3;
+      if (retryCount >= maxRetries) {
+        logger.warn(
+          { taskId: task.id, retryCount, maxRetries },
+          'CMDCenter poller: task max retries exceeded — skipping (heartbeat will escalate)',
+        );
+        continue;
+      }
+
       const trigger = FOLDER_TO_TRIGGER[folder] ?? '/cmd';
       const priority = (task.priority ?? 'medium').toUpperCase();
       const content =
@@ -163,6 +174,8 @@ interface CmdCenterTask {
   assigned_agent: string | null;
   priority: string | null;
   status: string;
+  retry_count: number | null;
+  max_retries: number | null;
 }
 
 async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
