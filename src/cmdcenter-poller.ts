@@ -65,8 +65,10 @@ const FOLDER_TO_TRIGGER: Record<string, string> = {
   telegram_cmdcenter: '@CMDBot',
 };
 
-// Track which task IDs we've already injected to avoid duplicates
-const injectedTaskIds = new Set<number>();
+// Track which task IDs we've already injected, with injection timestamp.
+// Entries expire after INJECT_TTL_MS so stale/failed tasks get re-injected.
+const INJECT_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const injectedTaskIds = new Map<number, number>(); // taskId → injectedAt (ms)
 
 // ── Main poller ───────────────────────────────────────────────────────────────
 
@@ -109,7 +111,9 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
         continue;
       }
 
-      if (injectedTaskIds.has(task.id)) continue; // already queued this session
+      // Skip if recently injected (within TTL window) — prevents duplicate queuing
+      const lastInjected = injectedTaskIds.get(task.id);
+      if (lastInjected && Date.now() - lastInjected < INJECT_TTL_MS) continue;
 
       const trigger = FOLDER_TO_TRIGGER[folder] ?? '/cmd';
       const priority = (task.priority ?? 'medium').toUpperCase();
@@ -133,7 +137,7 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       });
 
       queue.enqueueMessageCheck(jid);
-      injectedTaskIds.add(task.id);
+      injectedTaskIds.set(task.id, Date.now());
       injected++;
 
       logger.info(
