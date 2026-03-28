@@ -234,7 +234,10 @@ async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
   // executed → QABot auto-pickup
   // review → SrDev auto-pickup
   // completed → Live Test Agent module trigger (PMBot handles)
-  const statuses = ['pending', 'in_progress', 'executed', 'review', 'completed'];
+  // NOTE: 'completed' intentionally excluded — completed tasks must never be re-dispatched.
+  // Bug fix: Task #157 was being re-injected every 10 min because 'completed' was in this list
+  // and the in-memory TTL (10 min) kept expiring. (Fixed: Task #157, CTO Agent, 2026-03-29)
+  const statuses = ['pending', 'in_progress', 'executed', 'review'];
   const responses = await Promise.all(
     statuses.map(status =>
       fetch(`${CMDCENTER_API_URL}/tasks?status=${status}&limit=20`, {
@@ -258,8 +261,14 @@ async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
     d.success && Array.isArray(d.data) ? d.data : []
   );
 
-  // Only return tasks assigned to known nanoclaw agents
+  // Terminal statuses: never re-dispatch regardless of API response
+  const TERMINAL_STATUSES = new Set(['completed', 'rejected', 'cancelled']);
+
+  // Only return tasks assigned to known nanoclaw agents and not in terminal state
   return allTasks.filter(
-    (t) => t.assigned_agent && t.assigned_agent in AGENT_TO_FOLDER,
+    (t) =>
+      t.assigned_agent &&
+      t.assigned_agent in AGENT_TO_FOLDER &&
+      !TERMINAL_STATUSES.has(t.status),
   );
 }
