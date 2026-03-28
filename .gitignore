@@ -40,6 +40,28 @@ groups/telegram_cmdcenter/*
 
 agents-sdk-docs
 
+# Channel groups (direct user communication)
+!groups/telegram_sysagent/
+!groups/telegram_dm/
+!groups/whatsapp_main/
+groups/telegram_sysagent/*
+groups/telegram_dm/*
+groups/whatsapp_main/*
+!groups/telegram_sysagent/CLAUDE.md
+!groups/telegram_dm/CLAUDE.md
+!groups/whatsapp_main/CLAUDE.md
+
+# Virtual pipeline agents
+!groups/telegram_agentbuilder/
+!groups/telegram_srdev/
+!groups/telegram_livetest/
+groups/telegram_agentbuilder/*
+groups/telegram_srdev/*
+groups/telegram_livetest/*
+!groups/telegram_agentbuilder/CLAUDE.md
+!groups/telegram_srdev/CLAUDE.md
+!groups/telegram_livetest/CLAUDE.md
+
 # Executive and worker nanoclaw bot groups
 !groups/telegram_devbot/
 !groups/telegram_qabot/

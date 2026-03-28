@@ -47,6 +47,17 @@ const AGENT_TO_FOLDER: Record<string, string> = {
   'PM Agent': 'telegram_pmbot',
   'QA Agent': 'telegram_qabot',
   'Architect Agent': 'telegram_architectbot',
+  AgentBuilder: 'telegram_agentbuilder',
+  'Agent Builder': 'telegram_agentbuilder',
+  'Sr Developer': 'telegram_srdev',
+  SrDev: 'telegram_srdev',
+  'Sr Dev': 'telegram_srdev',
+  'Live Test Agent': 'telegram_livetest',
+  LiveTest: 'telegram_livetest',
+  'Live Test': 'telegram_livetest',
+  SYSAgent: 'telegram_sysagent',
+  'SYS Agent': 'telegram_sysagent',
+  'System Agent': 'telegram_sysagent',
 };
 
 // Trigger prefix per folder (must match registered_groups trigger_pattern)
@@ -63,6 +74,10 @@ const FOLDER_TO_TRIGGER: Record<string, string> = {
   telegram_architectbot: '/architectbot',
   telegram_localaibot: '/localai',
   telegram_cmdcenter: '@CMDBot',
+  telegram_agentbuilder: '/agentbuilder',
+  telegram_srdev: '/srdev',
+  telegram_livetest: '/livetest',
+  telegram_sysagent: '/sysagent',
 };
 
 // Track which task IDs we've already injected, with injection timestamp.
@@ -96,8 +111,11 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       }
     }
 
+    // Sort tasks by weighted priority score — highest urgency first
+    const sortedTasks = [...tasks].sort((a, b) => scoreTask(b) - scoreTask(a));
+
     let injected = 0;
-    for (const task of tasks) {
+    for (const task of sortedTasks) {
       const agentName: string = task.assigned_agent ?? '';
       const folder = AGENT_TO_FOLDER[agentName];
       if (!folder) continue; // not a nanoclaw agent
@@ -176,28 +194,72 @@ interface CmdCenterTask {
   status: string;
   retry_count: number | null;
   max_retries: number | null;
+  project_id: number | null;
+  deadline: string | null;
+}
+
+// ── Weighted Priority Scoring ─────────────────────────────────────────────────
+// Score = Priority Weight + Project Weight + Deadline Weight
+// Higher score = higher urgency, processed first
+
+const PRIORITY_WEIGHT: Record<string, number> = {
+  critical: 40,
+  high: 30,
+  medium: 20,
+  low: 10,
+};
+
+function scoreTask(task: CmdCenterTask): number {
+  const priorityScore = PRIORITY_WEIGHT[(task.priority ?? 'medium').toLowerCase()] ?? 20;
+
+  // Deadline weight: check how close the deadline is
+  let deadlineScore = 0;
+  if (task.deadline) {
+    const now = Date.now();
+    const deadline = new Date(task.deadline).getTime();
+    const msPerDay = 24 * 60 * 60 * 1000;
+    const daysUntil = (deadline - now) / msPerDay;
+    if (daysUntil < 0) deadlineScore = 40;        // overdue
+    else if (daysUntil < 1) deadlineScore = 30;   // due today
+    else if (daysUntil <= 7) deadlineScore = 20;  // due this week
+    else deadlineScore = 0;                        // later
+  }
+
+  return priorityScore + deadlineScore;
 }
 
 async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
-  const url = `${CMDCENTER_API_URL}/tasks?status=in_progress&limit=20`;
-  const res = await fetch(url, {
-    headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
-    signal: AbortSignal.timeout(15_000),
-  });
+  // Fetch tasks across all active pipeline statuses
+  // pending/in_progress → orchestrator + developers
+  // executed → QABot auto-pickup
+  // review → SrDev auto-pickup
+  // completed → Live Test Agent module trigger (PMBot handles)
+  const statuses = ['pending', 'in_progress', 'executed', 'review', 'completed'];
+  const responses = await Promise.all(
+    statuses.map(status =>
+      fetch(`${CMDCENTER_API_URL}/tasks?status=${status}&limit=20`, {
+        headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
+        signal: AbortSignal.timeout(15_000),
+      })
+    )
+  );
 
-  if (!res.ok) {
-    throw new Error(`CMDCenter API error ${res.status}: ${await res.text()}`);
+  for (const res of responses) {
+    if (!res.ok) {
+      throw new Error(`CMDCenter API error ${res.status}: ${await res.text()}`);
+    }
   }
 
-  const data = (await res.json()) as {
-    success: boolean;
-    data: CmdCenterTask[];
-  };
+  const dataResults = await Promise.all(
+    responses.map(r => r.json() as Promise<{ success: boolean; data: CmdCenterTask[] }>)
+  );
 
-  if (!data.success || !Array.isArray(data.data)) return [];
+  const allTasks = dataResults.flatMap(d =>
+    d.success && Array.isArray(d.data) ? d.data : []
+  );
 
   // Only return tasks assigned to known nanoclaw agents
-  return data.data.filter(
+  return allTasks.filter(
     (t) => t.assigned_agent && t.assigned_agent in AGENT_TO_FOLDER,
   );
 }

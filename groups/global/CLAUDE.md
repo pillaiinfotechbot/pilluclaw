@@ -77,6 +77,24 @@ Standard Markdown works: `**bold**`, `*italic*`, `[links](url)`, `# headings`.
 
 ---
 
+## Accessing Mac Host Services
+
+Your container runs on macOS Docker. To reach services running on the Mac host (MySQL, Apache, local APIs), use `host.docker.internal` instead of `localhost` or `127.0.0.1`:
+
+- **MySQL (MAMP):** `host.docker.internal:3306`
+- **MAMP Apache:** `http://host.docker.internal:80`
+- **Any local API:** `http://host.docker.internal:<port>`
+
+Example bash:
+```bash
+mysql -h host.docker.internal -P 3306 -u root -proot
+curl http://host.docker.internal:8888/
+```
+
+> Note: `localhost` inside the container refers to the container itself, not the Mac.
+
+---
+
 ## Task Scripts
 
 For any recurring task, use `schedule_task`. Frequent agent invocations — especially multiple times a day — consume API credits and can risk account restrictions. If a simple check can determine whether action is needed, add a `script` — it runs first, and the agent is only called when the check passes. This keeps invocations to a minimum.
