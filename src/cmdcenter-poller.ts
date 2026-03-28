@@ -234,10 +234,16 @@ async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
   // executed → QABot auto-pickup
   // review → SrDev auto-pickup
   // completed → Live Test Agent module trigger (PMBot handles)
-  // NOTE: 'completed' intentionally excluded — completed tasks must never be re-dispatched.
-  // Bug fix: Task #157 was being re-injected every 10 min because 'completed' was in this list
-  // and the in-memory TTL (10 min) kept expiring. (Fixed: Task #157, CTO Agent, 2026-03-29)
-  const statuses = ['pending', 'in_progress', 'executed', 'review'];
+  // Poller ONLY dispatches tasks that need agent action:
+  //   pending    → agent picks up and executes
+  //   in_progress → stuck-task recovery (TTL dedup prevents spam)
+  //
+  // Intentionally excluded:
+  //   executed   → review is handled by PHP heartbeat (cron_agent_heartbeat.php)
+  //                routing executed→assigned_agent caused Tasks #159-168 loop (Task #169)
+  //   review     → internal review stage, not dispatched via Telegram
+  //   completed/rejected/cancelled → terminal, never re-dispatch
+  const statuses = ['pending', 'in_progress'];
   const responses = await Promise.all(
     statuses.map(status =>
       fetch(`${CMDCENTER_API_URL}/tasks?status=${status}&limit=20`, {
@@ -262,7 +268,7 @@ async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
   );
 
   // Terminal statuses: never re-dispatch regardless of API response
-  const TERMINAL_STATUSES = new Set(['completed', 'rejected', 'cancelled']);
+  const TERMINAL_STATUSES = new Set(['executed', 'review', 'completed', 'rejected', 'cancelled']);
 
   // Only return tasks assigned to known nanoclaw agents and not in terminal state
   return allTasks.filter(
