@@ -108,10 +108,18 @@ Timeout: none — wait indefinitely for confirmation-required commands.
 
 | Action | Payload | Confirmation Required |
 |--------|---------|----------------------|
-| `status` | `{"service": "mamp|nanoclaw|nginx|docker"}` | No |
-| `start` | `{"service": "mamp|nanoclaw|nginx"}` | No |
-| `stop` | `{"service": "mamp|nanoclaw|nginx"}` | No |
-| `restart` | `{"service": "mamp|nanoclaw|nginx"}` | No |
+| `status` | `{"service": "mamp\|nanoclaw\|maddyclaw\|rubinsapp\|nginx\|docker"}` | No |
+| `start` | `{"service": "mamp\|nanoclaw\|maddyclaw\|rubinsapp\|nginx"}` | No |
+| `stop` | `{"service": "mamp\|nanoclaw\|maddyclaw\|rubinsapp\|nginx"}` | No |
+| `restart` | `{"service": "mamp\|nanoclaw\|maddyclaw\|rubinsapp\|nginx"}` | No |
+
+**Service name → launchctl label mapping:**
+
+| Service name | launchctl label | What it is |
+|---|---|---|
+| `nanoclaw` | `com.nanoclaw` | Pilluclaw — Coddy (WhatsApp + Telegram orchestrator) |
+| `maddyclaw` | `com.maddyclaw` | Maddyclaw — Maddy bot |
+| `rubinsapp` | `com.rubinsapp` | Rubinsapp NanoClaw — Rubins App AI agent |
 
 ---
 
@@ -192,9 +200,11 @@ Then restart Apache:
 {"category": "docker", "action": "ps", "payload": {}}
 ```
 
-### Restart NanoClaw
+### Restart a NanoClaw bot
 ```json
 {"category": "service", "action": "restart", "payload": {"service": "nanoclaw"}}
+{"category": "service", "action": "restart", "payload": {"service": "maddyclaw"}}
+{"category": "service", "action": "restart", "payload": {"service": "rubinsapp"}}
 ```
 
 ---

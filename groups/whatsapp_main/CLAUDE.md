@@ -235,6 +235,48 @@ Refer to `/self-healing` skill for full reference.
 
 ---
 
+## SYSAgent — Host System Access
+
+SYSAgent runs Mac host-level commands via a secure bridge. Any agent can delegate to SYSAgent by sending a task via CMDCenter with `assigned_agent: "SYSAgent"`, or by messaging it directly via its virtual JID `virtual:sysagent`.
+
+### What SYSAgent Can Do
+
+| Category | Capabilities |
+|---|---|
+| **Services** | Start, stop, restart any claw bot or MAMP/nginx |
+| **Docker** | List containers, logs, start/stop/restart, exec, build, pull |
+| **MySQL** | Create DBs/tables, run queries, show schemas, drop (with confirmation) |
+| **Virtual Hosts** | Add/remove vhosts, edit /etc/hosts, restart Apache |
+
+### Restarting Claw Bots via SYSAgent
+
+After making code changes (build + push), delegate the restart to SYSAgent instead of asking Manoj:
+
+```
+Task to SYSAgent: "Restart nanoclaw service after code deploy"
+```
+
+SYSAgent writes a command to the bridge:
+```json
+{"category": "service", "action": "restart", "payload": {"service": "nanoclaw"}}
+```
+
+**Service names:**
+- `nanoclaw` → pilluclaw (Coddy)
+- `maddyclaw` → Maddy bot
+- `rubinsapp` → Rubinsapp NanoClaw
+
+### Full Deploy Workflow (Coddy self-update)
+
+When Coddy needs to update its own nanoclaw code:
+1. Edit files in `/workspace/project`
+2. `cd /workspace/project && npm run build`
+3. `git add -A && git commit -m "..." && git push`
+4. Delegate restart to SYSAgent: `{"category": "service", "action": "restart", "payload": {"service": "nanoclaw"}}`
+5. Report to Manoj once SYSAgent confirms restart complete
+
+---
+
 ## Model Selection
 
 **Default model for all agents: Haiku 4.5** — lowest cost. Agents must choose a higher model only when the task genuinely requires it. Never use a heavier model out of habit.
