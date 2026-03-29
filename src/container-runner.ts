@@ -67,15 +67,12 @@ function buildVolumeMounts(
   const groupDir = resolveGroupFolderPath(group.folder);
 
   if (isMain) {
-    // Main gets the project root read-only. Writable paths the agent needs
-    // (group folder, IPC, .claude/) are mounted separately below.
-    // Read-only prevents the agent from modifying host application code
-    // (src/, dist/, package.json, etc.) which would bypass the sandbox
-    // entirely on next restart.
+    // Main gets the project root read-write so the agent can edit code,
+    // commit, and push changes to the nanoclaw repo directly.
     mounts.push({
       hostPath: projectRoot,
       containerPath: '/workspace/project',
-      readonly: true,
+      readonly: false,
     });
 
     // Shadow .env so the agent cannot read secrets from the mounted project root.
@@ -293,7 +290,11 @@ export async function runContainerAgent(
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
   const containerName = `${CONTAINER_PREFIX}-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName, group.containerConfig?.model);
+  const containerArgs = buildContainerArgs(
+    mounts,
+    containerName,
+    group.containerConfig?.model,
+  );
 
   logger.debug(
     {

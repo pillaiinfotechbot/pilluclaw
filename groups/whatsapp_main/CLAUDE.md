@@ -289,10 +289,9 @@ These changes were made deliberately by Manoj. If something looks "wrong" or "mi
 **Why:** Docker containers cannot access macOS Keychain. The PAT in the URL is the only way for containers to pull from private repos.
 **Rule:** Do not remove or replace the PAT-bearing URLs. If PAT expires, Manoj must generate a new one and update `.git/config` files.
 
-### Nanoclaw Projects — Read-Only Container Mount (permanent)
-**Change:** `/workspace/project` (the nanoclaw orchestrator code) is intentionally mounted **read-only** in all containers.
-**Why:** Security — prevents agents from modifying their own orchestrator code. A compromised agent could otherwise rewrite its own instructions on the next restart.
-**Rule:** Agents cannot `git push` nanoclaw code from inside containers. When nanoclaw code changes are needed, tell Manoj the exact commands to run on the host terminal.
+### Pilluclaw Project — Read-Write Container Mount (2026-03-29)
+**Change:** `/workspace/project` is mounted **read-write** for the main group. Coddy can edit nanoclaw source code, commit, and push directly from inside the container.
+**Rule:** After making code changes in `/workspace/project`, always run `npm run build` to compile, then restart the service with `launchctl kickstart -k gui/$(id -u)/com.nanoclaw`. Changes only take effect after a restart.
 
 ---
 
@@ -311,12 +310,16 @@ These changes were made deliberately by Manoj. If something looks "wrong" or "mi
 | View live logs (pilluclaw) | `tail -f /Users/mac/Development/pilluclaw/logs/nanoclaw.log` |
 
 ### Deploy nanoclaw code changes (pilluclaw)
-The nanoclaw project is mounted read-only in containers — Coddy cannot push code directly. When a nanoclaw code change is needed, give Manoj these exact commands:
+The nanoclaw project is mounted **read-write** — Coddy can edit, build, commit, and push directly from `/workspace/project`. After making changes:
 ```bash
-cd /Users/mac/Development/pilluclaw
+cd /workspace/project
+npm run build
 git add -A
 git commit -m "your message"
 git push
+```
+Then restart the service so the new build takes effect. Use the MCP nanoclaw tool or tell Manoj:
+```bash
 launchctl kickstart -k gui/$(id -u)/com.nanoclaw
 ```
 Do NOT reference pm2, systemctl, or any other service manager.
