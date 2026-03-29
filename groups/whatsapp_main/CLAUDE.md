@@ -270,11 +270,15 @@ SYSAgent writes a command to the bridge:
 ### Full Deploy Workflow (Coddy self-update)
 
 When Coddy needs to update its own nanoclaw code:
-1. Edit files in `/workspace/project`
-2. `cd /workspace/project && npm run build`
-3. `git add -A && git commit -m "..." && git push`
-4. Delegate restart to SYSAgent: `{"category": "service", "action": "restart", "payload": {"service": "nanoclaw"}}`
-5. Report to Manoj once SYSAgent confirms restart complete
+1. **Check git status first**: `cd /workspace/project && git status && git log --oneline -3` — confirm what's actually pending before telling Manoj anything
+2. Edit files in `/workspace/project`
+3. `npm run build`
+4. `git add -A && git commit -m "..." && git push`
+5. Delegate restart to SYSAgent: `{"category": "service", "action": "restart", "payload": {"service": "nanoclaw"}}`
+6. Report to Manoj once SYSAgent confirms restart complete
+
+**NEVER tell Manoj to run git commands** — you have direct write access. If `git status` shows nothing to commit, the changes are already pushed. Do not ask Manoj to push things that are already in the repo.
+**There is no GitHub Actions CI/CD** — deployment is `npm run build` + SYSAgent restart. Nothing else.
 
 ---
 
