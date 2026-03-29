@@ -82,8 +82,14 @@ const FOLDER_TO_TRIGGER: Record<string, string> = {
 
 // Track which task IDs we've already injected, with injection timestamp.
 // Entries expire after INJECT_TTL_MS so stale/failed tasks get re-injected.
-const INJECT_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const INJECT_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const injectedTaskIds = new Map<number, number>(); // taskId → injectedAt (ms)
+
+// Terminal statuses — never re-inject regardless of TTL
+const TERMINAL_STATUSES = new Set(['passed', 'in_testing']);
+
+// Statuses that only LiveTest should receive
+const LIVETEST_ONLY_STATUSES = new Set(['completed']);
 
 // ── Main poller ───────────────────────────────────────────────────────────────
 
@@ -128,6 +134,12 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
         );
         continue;
       }
+
+      // Skip terminal statuses — task is fully done, no agent action needed
+      if (TERMINAL_STATUSES.has(task.status)) continue;
+
+      // completed tasks are only for LiveTest — skip for all other agents
+      if (LIVETEST_ONLY_STATUSES.has(task.status) && folder !== 'telegram_livetest') continue;
 
       // Skip if recently injected (within TTL window) — prevents duplicate queuing
       const lastInjected = injectedTaskIds.get(task.id);
@@ -237,16 +249,22 @@ async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
   // Do NOT fetch pending/executed/review/completed: those are managed by the heartbeat cron,
   // and fetching them here causes re-dispatch loops for tasks already being handled.
   //   executed/review/completed/rejected → terminal stages managed by heartbeat only
-  const res = await fetch(`${CMDCENTER_API_URL}/tasks?status=in_progress&limit=50`, {
-    headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
-    signal: AbortSignal.timeout(15_000),
-  });
+  const res = await fetch(
+    `${CMDCENTER_API_URL}/tasks?status=in_progress&limit=50`,
+    {
+      headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
+      signal: AbortSignal.timeout(15_000),
+    },
+  );
 
   if (!res.ok) {
     throw new Error(`CMDCenter API error ${res.status}: ${await res.text()}`);
   }
 
-  const data = (await res.json()) as { success: boolean; data: CmdCenterTask[] };
+  const data = (await res.json()) as {
+    success: boolean;
+    data: CmdCenterTask[];
+  };
   const allTasks = data.success && Array.isArray(data.data) ? data.data : [];
 
   // Safety guard: never re-dispatch terminal statuses even if the API returns them

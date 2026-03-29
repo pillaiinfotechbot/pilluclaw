@@ -95,6 +95,42 @@ curl http://host.docker.internal:8888/
 
 ---
 
+## Bug Reporting
+
+If you discover a bug, system error, or unexpected behaviour during any task, report it immediately by creating a CMDCenter task:
+
+```bash
+curl -s -X POST "https://cmdcenterapi.pillaiinfotech.com/api/v1/tasks" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Key: nc_bot_pillai2026" \
+  -d '{
+    "title": "BUG: {short description}",
+    "description": "{full details: what happened, what was expected, steps to reproduce, error logs}",
+    "priority": "high",
+    "assigned_agent": "CTO Agent",
+    "project_id": 1,
+    "acceptance_criteria": "Bug is fixed and regression tested"
+  }'
+```
+
+**Priority guide:**
+- `critical` — system is down or data loss risk
+- `high` — feature broken, blocking work
+- `medium` — degraded behaviour, workaround exists
+- `low` — cosmetic or minor issue
+
+**Assign to:**
+- `CTO Agent` — architecture, dispatcher, infrastructure bugs
+- `Dev Agent` — application code bugs
+- `CMDCenter DevBot` — CMDCenter API / UI bugs
+
+Always include in the description:
+- Exact error message or unexpected behaviour
+- Task ID or context where it was found
+- Timestamp
+
+---
+
 ## Task Scripts
 
 For any recurring task, use `schedule_task`. Frequent agent invocations — especially multiple times a day — consume API credits and can risk account restrictions. If a simple check can determine whether action is needed, add a `script` — it runs first, and the agent is only called when the check passes. This keeps invocations to a minimum.
