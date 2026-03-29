@@ -9,6 +9,7 @@ import path from 'path';
 import {
   CONTAINER_IMAGE,
   CONTAINER_MAX_OUTPUT_SIZE,
+  CONTAINER_PREFIX,
   CONTAINER_TIMEOUT,
   CREDENTIAL_PROXY_PORT,
   DATA_DIR,
@@ -225,11 +226,15 @@ function buildVolumeMounts(
 function buildContainerArgs(
   mounts: VolumeMount[],
   containerName: string,
+  model?: string,
 ): string[] {
   const args: string[] = ['run', '-i', '--rm', '--name', containerName];
 
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
+
+  // Set the Claude model for this agent. Falls back to sonnet if not specified.
+  args.push('-e', `ANTHROPIC_MODEL=${model || 'claude-sonnet-4-6'}`);
 
   // Route API traffic through the credential proxy (containers never see real secrets)
   args.push(
@@ -287,8 +292,8 @@ export async function runContainerAgent(
 
   const mounts = buildVolumeMounts(group, input.isMain);
   const safeName = group.folder.replace(/[^a-zA-Z0-9-]/g, '-');
-  const containerName = `nanoclaw-${safeName}-${Date.now()}`;
-  const containerArgs = buildContainerArgs(mounts, containerName);
+  const containerName = `${CONTAINER_PREFIX}-${safeName}-${Date.now()}`;
+  const containerArgs = buildContainerArgs(mounts, containerName, group.containerConfig?.model);
 
   logger.debug(
     {

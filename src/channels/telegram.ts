@@ -4,7 +4,7 @@ import path from 'path';
 import { readEnvFile } from '../env.js';
 import { logger } from '../logger.js';
 import { updateChatName } from '../db.js';
-import { GROUPS_DIR } from '../config.js';
+import { GROUPS_DIR, OWNER_TELEGRAM_ID } from '../config.js';
 import { Channel, NewMessage } from '../types.js';
 import { registerChannel, ChannelOpts } from './registry.js';
 
@@ -260,16 +260,147 @@ export class TelegramChannel implements Channel {
     // Always notify about chat metadata
     this.opts.onChatMetadata(jid, timestamp, chatName, 'telegram', isGroup);
 
+    // Handle owner-only admin commands
+    const senderId = msg.from?.id ?? 0;
+    if (
+      msg.text?.startsWith('/') &&
+      senderId.toString() === OWNER_TELEGRAM_ID
+    ) {
+      const parts = msg.text.trim().split(/\s+/);
+      const cmd = parts[0].split('@')[0].toLowerCase();
+      if (cmd === '/grant') {
+        const argRaw = parts[1];
+        if (!argRaw) {
+          await this.apiCall('sendMessage', {
+            chat_id: chatId,
+            text: 'Usage: /grant @username_or_id [read|write]',
+          });
+          return;
+        }
+        const accessWord = parts[parts.length - 1]?.toLowerCase();
+        const isReadonly = accessWord === 'read';
+        // Resolve @username or numeric ID
+        let targetId: string;
+        let resolvedUsername: string | undefined;
+        let name: string;
+        try {
+          const chat = await this.apiCall<{
+            id: number;
+            first_name?: string;
+            last_name?: string;
+            username?: string;
+          }>('getChat', { chat_id: argRaw });
+          targetId = String(chat.id);
+          resolvedUsername = chat.username;
+          name =
+            [chat.first_name, chat.last_name].filter(Boolean).join(' ') ||
+            (resolvedUsername ? `@${resolvedUsername}` : `User ${targetId}`);
+        } catch {
+          await this.apiCall('sendMessage', {
+            chat_id: chatId,
+            text: `❌ Could not find user: ${argRaw}\nMake sure they have messaged this bot first.`,
+          });
+          return;
+        }
+        this.opts.onGrantAccess?.(targetId, name, isReadonly, resolvedUsername);
+        const label = isReadonly ? '👁 read-only' : '✏️ write';
+        const display = resolvedUsername ? `@${resolvedUsername}` : targetId;
+        await this.apiCall('sendMessage', {
+          chat_id: chatId,
+          text: `✅ ${name} (${display}) — ${label}`,
+        });
+        return;
+      }
+      if (cmd === '/revoke') {
+        const argRaw = parts[1];
+        if (!argRaw) {
+          await this.apiCall('sendMessage', {
+            chat_id: chatId,
+            text: 'Usage: /revoke @username_or_id',
+          });
+          return;
+        }
+        // Resolve to numeric ID
+        let targetId: string;
+        if (/^\d+$/.test(argRaw)) {
+          targetId = argRaw;
+        } else {
+          // Try to find by username in current access list
+          const username = argRaw.replace(/^@/, '');
+          const list = this.opts.onListAccess?.() ?? [];
+          const match = list.find((u) => u.username === username);
+          if (match) {
+            targetId = match.jid.replace(/^tg:/, '');
+          } else {
+            // Try resolving via API
+            try {
+              const chat = await this.apiCall<{ id: number }>('getChat', {
+                chat_id: argRaw,
+              });
+              targetId = String(chat.id);
+            } catch {
+              await this.apiCall('sendMessage', {
+                chat_id: chatId,
+                text: `❌ Could not find user: ${argRaw}`,
+              });
+              return;
+            }
+          }
+        }
+        this.opts.onRevokeAccess?.(targetId);
+        await this.apiCall('sendMessage', {
+          chat_id: chatId,
+          text: `🚫 Access revoked for ${argRaw}`,
+        });
+        return;
+      }
+      if (cmd === '/access') {
+        const list = this.opts.onListAccess?.() ?? [];
+        const text =
+          list.length === 0
+            ? 'No users registered.'
+            : 'Registered users:\n' +
+              list
+                .map((u) => {
+                  const display = u.username
+                    ? `@${u.username}`
+                    : u.jid.replace(/^tg:/, '');
+                  const access = u.readonly ? '👁 read' : '✏️ write';
+                  return `• ${u.name} — ${display} ${access}`;
+                })
+                .join('\n');
+        await this.apiCall('sendMessage', { chat_id: chatId, text });
+        return;
+      }
+    }
+
     // Only deliver message for registered groups
     const groups = this.opts.registeredGroups();
-    if (!groups[jid]?.length) return;
+    if (!groups[jid]?.length) {
+      // Tell unregistered users their ID so owner can grant access
+      if (!isGroup) {
+        await this.apiCall('sendMessage', {
+          chat_id: chatId,
+          text: `You are not authorized to use this bot.\n\nYour Telegram ID: ${senderId}\n\nShare this ID with the owner to request access.`,
+        });
+      }
+      return;
+    }
+
+    // Auto-update group name from real Telegram sender info
+    const realName =
+      [msg.chat.first_name, msg.chat.last_name].filter(Boolean).join(' ') ||
+      msg.chat.title ||
+      String(chatId);
+    if (realName && realName !== String(chatId)) {
+      this.opts.onUpdateGroupName?.(jid, realName);
+    }
 
     const hasPhoto = !!(msg.photo?.length || msg.sticker);
     const content = msg.text ?? msg.caption ?? (hasPhoto ? '[Image]' : '');
     if (!content) return;
 
-    // Sender info
-    const senderId = msg.from?.id ?? 0;
+    // Sender info (senderId already declared above for admin command check)
     const senderName =
       [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' ') ||
       msg.from?.username ||

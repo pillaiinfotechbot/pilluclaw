@@ -37,6 +37,7 @@ import {
   getNewMessages,
   getRouterState,
   initDatabase,
+  deleteRegisteredGroup,
   setRegisteredGroup,
   setRouterState,
   setSession,
@@ -278,6 +279,10 @@ async function processGroupMessages(chatJid: string): Promise<boolean> {
 
     if (result.status === 'success') {
       queue.notifyIdle(chatJid);
+      // Always reset idle timer on success — even when result is null (IPC-only response).
+      // Without this, agent responses sent via MCP IPC tool leave the container stuck
+      // in waitForIpcMessage() forever because idleTimer never fires to close stdin.
+      resetIdleTimer();
     }
 
     if (result.status === 'error') {
@@ -607,6 +612,14 @@ async function main(): Promise<void> {
   // Channel callbacks (shared by all channels)
   const channelOpts = {
     onMessage: (chatJid: string, msg: NewMessage) => {
+      // Read-only users: drop their inbound messages, bot can still push to them
+      if (
+        !msg.is_from_me &&
+        registeredGroups[chatJid]?.[0]?.folder.startsWith('telegram_readonly_')
+      ) {
+        return;
+      }
+
       // Remote control commands — intercept before storage
       const trimmed = msg.content.trim();
       if (trimmed === '/remote-control' || trimmed === '/remote-control-end') {
@@ -646,6 +659,53 @@ async function main(): Promise<void> {
       isGroup?: boolean,
     ) => storeChatMetadata(chatJid, timestamp, name, channel, isGroup),
     registeredGroups: () => registeredGroups,
+    onGrantAccess: (
+      tgId: string,
+      name: string,
+      readonly: boolean,
+      username?: string,
+    ) => {
+      const jid = `tg:${tgId}`;
+      const folder = readonly
+        ? `telegram_readonly_${tgId}`
+        : `telegram_client_${tgId}`;
+      registerGroup(jid, {
+        name,
+        folder,
+        trigger: `@${ASSISTANT_NAME}`,
+        added_at: new Date().toISOString(),
+        requiresTrigger: false,
+        isMain: false,
+        containerConfig: username ? { username } : undefined,
+      });
+      logger.info(
+        { jid, name, folder, readonly },
+        'Access granted to Telegram user',
+      );
+    },
+    onRevokeAccess: (tgId: string) => {
+      const jid = `tg:${tgId}`;
+      delete registeredGroups[jid];
+      deleteRegisteredGroup(jid);
+      logger.info({ jid }, 'Access revoked from Telegram user');
+    },
+    onListAccess: () =>
+      Object.entries(registeredGroups).flatMap(([jid, groups]) =>
+        groups.map((g) => ({
+          jid,
+          name: g.name,
+          folder: g.folder,
+          readonly: g.folder.startsWith('telegram_readonly_'),
+          username: (g.containerConfig as any)?.username as string | undefined,
+        })),
+      ),
+    onUpdateGroupName: (jid: string, name: string) => {
+      const groups = registeredGroups[jid];
+      if (groups && groups.length > 0 && groups[0].name !== name) {
+        groups[0].name = name;
+        setRegisteredGroup(jid, groups[0]);
+      }
+    },
   };
 
   // Create and connect all registered channels.

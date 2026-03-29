@@ -40,6 +40,10 @@ export const DATA_DIR = path.resolve(PROJECT_ROOT, 'data');
 
 export const CONTAINER_IMAGE =
   process.env.CONTAINER_IMAGE || 'nanoclaw-agent:latest';
+export const CONTAINER_PREFIX = process.env.CONTAINER_PREFIX || 'nanoclaw';
+// Owner's Telegram ID — only this user can run /grant, /revoke, /access
+export const OWNER_TELEGRAM_ID = process.env.OWNER_TELEGRAM_ID || '405015992';
+
 export const CONTAINER_TIMEOUT = parseInt(
   process.env.CONTAINER_TIMEOUT || '1800000',
   10,

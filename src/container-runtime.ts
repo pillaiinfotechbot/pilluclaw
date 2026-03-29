@@ -6,6 +6,7 @@ import { execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 
+import { CONTAINER_PREFIX } from './config.js';
 import { logger } from './logger.js';
 
 /** The container runtime binary name. */
@@ -62,43 +63,76 @@ export function stopContainer(name: string): string {
   return `${CONTAINER_RUNTIME_BIN} stop -t 1 ${name}`;
 }
 
-/** Ensure the container runtime is running, starting it if needed. */
+/** Ensure the container runtime is running, retrying for up to 3 minutes on startup. */
 export function ensureContainerRuntimeRunning(): void {
-  try {
-    execSync(`${CONTAINER_RUNTIME_BIN} info`, {
-      stdio: 'pipe',
-      timeout: 10000,
-    });
-    logger.debug('Container runtime already running');
-  } catch (err) {
-    logger.error({ err }, 'Failed to reach container runtime');
-    console.error(
-      '\n╔════════════════════════════════════════════════════════════════╗',
-    );
-    console.error(
-      '║  FATAL: Container runtime failed to start                      ║',
-    );
-    console.error(
-      '║                                                                ║',
-    );
-    console.error(
-      '║  Agents cannot run without a container runtime. To fix:        ║',
-    );
-    console.error(
-      '║  1. Ensure Docker is installed and running                     ║',
-    );
-    console.error(
-      '║  2. Run: docker info                                           ║',
-    );
-    console.error(
-      '║  3. Restart NanoClaw                                           ║',
-    );
-    console.error(
-      '╚════════════════════════════════════════════════════════════════╝\n',
-    );
-    throw new Error('Container runtime is required but failed to start', {
-      cause: err,
-    });
+  const RETRY_INTERVAL_MS = 5000;
+  const MAX_WAIT_MS = 3 * 60 * 1000; // 3 minutes
+  const deadline = Date.now() + MAX_WAIT_MS;
+  let attempt = 0;
+
+  while (true) {
+    try {
+      execSync(`${CONTAINER_RUNTIME_BIN} info`, {
+        stdio: 'pipe',
+        timeout: 10000,
+      });
+      if (attempt > 0) {
+        logger.info(
+          { attempts: attempt },
+          'Container runtime is now available',
+        );
+      } else {
+        logger.debug('Container runtime already running');
+      }
+      return;
+    } catch (err) {
+      attempt++;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        logger.error(
+          { err },
+          'Container runtime did not become available in time',
+        );
+        console.error(
+          '\n╔════════════════════════════════════════════════════════════════╗',
+        );
+        console.error(
+          '║  FATAL: Container runtime failed to start                      ║',
+        );
+        console.error(
+          '║                                                                ║',
+        );
+        console.error(
+          '║  Agents cannot run without a container runtime. To fix:        ║',
+        );
+        console.error(
+          '║  1. Ensure Docker is installed and running                     ║',
+        );
+        console.error(
+          '║  2. Run: docker info                                           ║',
+        );
+        console.error(
+          '║  3. Restart NanoClaw                                           ║',
+        );
+        console.error(
+          '╚════════════════════════════════════════════════════════════════╝\n',
+        );
+        throw new Error('Container runtime is required but failed to start', {
+          cause: err,
+        });
+      }
+      logger.warn(
+        { attempt, remainingMs: remaining },
+        'Container runtime not ready, retrying in 5s...',
+      );
+      // Synchronous sleep — safe here because we're in startup before the event loop is active
+      Atomics.wait(
+        new Int32Array(new SharedArrayBuffer(4)),
+        0,
+        0,
+        RETRY_INTERVAL_MS,
+      );
+    }
   }
 }
 
@@ -106,7 +140,7 @@ export function ensureContainerRuntimeRunning(): void {
 export function cleanupOrphans(): void {
   try {
     const output = execSync(
-      `${CONTAINER_RUNTIME_BIN} ps --filter name=nanoclaw- --format '{{.Names}}'`,
+      `${CONTAINER_RUNTIME_BIN} ps --filter name=${CONTAINER_PREFIX}- --format '{{.Names}}'`,
       { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8' },
     );
     const orphans = output.trim().split('\n').filter(Boolean);

@@ -28,8 +28,10 @@ export interface AllowedRoot {
 }
 
 export interface ContainerConfig {
+  username?: string; // Telegram username of the registered user
   additionalMounts?: AdditionalMount[];
   timeout?: number; // Default: 300000 (5 minutes)
+  model?: string; // Claude model to use, e.g. 'claude-sonnet-4-6'. Falls back to DEFAULT_MODEL env or sonnet.
 }
 
 export interface RegisteredGroup {

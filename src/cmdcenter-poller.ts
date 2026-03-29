@@ -91,7 +91,6 @@ const TERMINAL_STATUSES = new Set(['passed', 'in_testing']);
 // Statuses that only LiveTest should receive
 const LIVETEST_ONLY_STATUSES = new Set(['completed']);
 
-
 // ── Main poller ───────────────────────────────────────────────────────────────
 
 export function startCmdCenterPoller(queue: GroupQueue): void {

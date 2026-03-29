@@ -235,6 +235,36 @@ Refer to `/self-healing` skill for full reference.
 
 ---
 
+## Model Selection
+
+**Default model for all agents: Haiku 4.5** — lowest cost. Agents must choose a higher model only when the task genuinely requires it. Never use a heavier model out of habit.
+
+### Available Models
+
+| Model | Shortname | Use When |
+|---|---|---|
+| **Haiku 4.5** | `haiku` | **Default.** Status checks, lookups, summaries, formatting, API calls, simple task updates — anything fast and routine |
+| **Sonnet 4.6** | `sonnet` | Coding, debugging, multi-file edits, analysis, delegation planning, anything that needs solid reasoning |
+| **Opus 4.6** | `opus` | Complex strategy, architecture decisions, OKR planning, deep multi-step reasoning — use sparingly |
+
+### How to Choose
+
+Ask yourself before using a heavier model:
+- **Can Haiku do this?** → Use Haiku. Simple API call, status check, short summary — always Haiku.
+- **Does this need real coding or analysis?** → Use Sonnet. Bug fixes, feature implementation, data analysis.
+- **Is this a major strategic decision or complex reasoning chain?** → Use Opus. CEO-level planning, architecture, critical business decisions only.
+
+### How to Override for a Subagent
+
+When spawning a subagent for a specific task, pass the `model` parameter:
+```
+Agent tool: model="sonnet", prompt="Fix the authentication bug in src/auth.ts"
+Agent tool: model="opus",   prompt="Design the full microservices migration plan"
+Agent tool: model="haiku",  prompt="Check how many tasks are in_progress right now"
+```
+
+---
+
 ## Admin Policy — Intentional Changes (Do NOT Undo)
 
 These changes were made deliberately by Manoj. If something looks "wrong" or "missing" below, it is intentional. Do not auto-fix, recreate, or revert any of these.
