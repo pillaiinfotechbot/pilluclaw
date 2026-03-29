@@ -95,6 +95,33 @@ curl http://host.docker.internal:8888/
 
 ---
 
+## Creating Tasks for Manoj (Human Todo)
+
+When you need Manoj to take action, create a CMDCenter task assigned to `Manoj Pillai`. The API automatically deduplicates — if a task with the **same title** is already open (`pending` or `in_progress`), it returns the existing task instead of creating a new one.
+
+**Rules:**
+- Use a consistent, specific title — the title is the deduplication key
+- Never create the same todo twice — check the response for `"deduplicated": true`
+- Only create a new todo when the previous one is closed (`completed`/`rejected`)
+- Set `priority` accurately: `critical` if blocking the entire pipeline, `high` if blocking a project, `medium` otherwise
+
+```bash
+curl -s -X POST "https://cmdcenterapi.pillaiinfotech.com/api/v1/tasks" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Key: nc_bot_pillai2026" \
+  -d '{
+    "title": "ACTION REQUIRED: {specific action needed}",
+    "description": "{full context, what decision/action is needed and why}",
+    "assigned_agent": "Manoj Pillai",
+    "priority": "high",
+    "project_id": 1
+  }'
+```
+
+If the response contains `"deduplicated": true` — the task already exists, do not create another.
+
+---
+
 ## Bug Reporting
 
 If you discover a bug, system error, or unexpected behaviour during any task, report it immediately by creating a CMDCenter task:

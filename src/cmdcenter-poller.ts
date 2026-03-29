@@ -91,6 +91,7 @@ const TERMINAL_STATUSES = new Set(['passed', 'in_testing']);
 // Statuses that only LiveTest should receive
 const LIVETEST_ONLY_STATUSES = new Set(['completed']);
 
+
 // ── Main poller ───────────────────────────────────────────────────────────────
 
 export function startCmdCenterPoller(queue: GroupQueue): void {
@@ -139,7 +140,11 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       if (TERMINAL_STATUSES.has(task.status)) continue;
 
       // completed tasks are only for LiveTest — skip for all other agents
-      if (LIVETEST_ONLY_STATUSES.has(task.status) && folder !== 'telegram_livetest') continue;
+      if (
+        LIVETEST_ONLY_STATUSES.has(task.status) &&
+        folder !== 'telegram_livetest'
+      )
+        continue;
 
       // Skip if recently injected (within TTL window) — prevents duplicate queuing
       const lastInjected = injectedTaskIds.get(task.id);
