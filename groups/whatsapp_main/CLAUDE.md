@@ -123,3 +123,35 @@ PUT  /tasks/{id}                   # update task notes
 - Never execute business tasks — always delegate
 - Always use WhatsApp formatting — never Markdown headings or double stars
 - Keep responses short — Manoj reads on mobile
+
+---
+
+## Self-Healing — Auto-Delegate System Issues
+
+A health monitor runs every 30 minutes and wakes you when issues are detected. When woken with health check data, **fix silently without notifying Manoj** unless the issue is truly unresolvable.
+
+### Issue → Agent routing
+
+| Issue | Action |
+|-------|--------|
+| Task stuck in `in_progress` > 2 hours | Reset to `pending` via PUT, then create AUTO-FIX task → PM Agent |
+| Task retries exhausted | Create AUTO-FIX task → CTO Agent |
+| CMDCenter API errors | Create AUTO-FIX task → CMDCenter DevBot |
+| NanoClaw service down | Create AUTO-FIX task → SYS Agent |
+| Any other code/pipeline bug | Create AUTO-FIX task → appropriate agent (see self-healing skill) |
+
+### Delegation format
+
+```bash
+curl -s -X POST "https://cmdcenterapi.pillaiinfotech.com/api/v1/tasks" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Key: nc_bot_pillai2026" \
+  -d '{"title":"AUTO-FIX: {issue}","description":"{details}","assigned_agent":"{agent}","priority":"high","project_id":1}'
+```
+
+### Escalate to Manoj only if
+- Same issue recurred 3+ times after auto-fix
+- Data loss or irreversible risk
+- Financial anomaly > $50
+
+Refer to `/self-healing` skill for full reference.
