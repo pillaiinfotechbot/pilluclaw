@@ -236,6 +236,7 @@ async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
   // Only fetch in_progress tasks — agents pick up tasks assigned to them by the heartbeat.
   // Do NOT fetch pending/executed/review/completed: those are managed by the heartbeat cron,
   // and fetching them here causes re-dispatch loops for tasks already being handled.
+  //   executed/review/completed/rejected → terminal stages managed by heartbeat only
   const res = await fetch(`${CMDCENTER_API_URL}/tasks?status=in_progress&limit=50`, {
     headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
     signal: AbortSignal.timeout(15_000),
@@ -245,11 +246,23 @@ async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
     throw new Error(`CMDCenter API error ${res.status}: ${await res.text()}`);
   }
 
-  const data = await res.json() as { success: boolean; data: CmdCenterTask[] };
+  const data = (await res.json()) as { success: boolean; data: CmdCenterTask[] };
   const allTasks = data.success && Array.isArray(data.data) ? data.data : [];
 
-  // Only return tasks assigned to known nanoclaw agents
+  // Safety guard: never re-dispatch terminal statuses even if the API returns them
+  const TERMINAL_STATUSES = new Set([
+    'executed',
+    'review',
+    'completed',
+    'rejected',
+    'cancelled',
+  ]);
+
+  // Only return tasks assigned to known nanoclaw agents and not in terminal state
   return allTasks.filter(
-    (t) => t.assigned_agent && t.assigned_agent in AGENT_TO_FOLDER,
+    (t) =>
+      t.assigned_agent &&
+      t.assigned_agent in AGENT_TO_FOLDER &&
+      !TERMINAL_STATUSES.has(t.status),
   );
 }
