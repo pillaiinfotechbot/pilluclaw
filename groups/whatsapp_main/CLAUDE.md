@@ -264,6 +264,7 @@ SYSAgent writes a command to the bridge:
 **Service names:**
 - `nanoclaw` → pilluclaw (Coddy)
 - `maddyclaw` → Maddy bot
+- `devcmdcenter` → nanoclaw (Andy)
 - `rubinsapp` → Rubinsapp NanoClaw
 
 ### Full Deploy Workflow (Coddy self-update)

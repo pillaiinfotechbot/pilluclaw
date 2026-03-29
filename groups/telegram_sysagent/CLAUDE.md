@@ -108,10 +108,10 @@ Timeout: none — wait indefinitely for confirmation-required commands.
 
 | Action | Payload | Confirmation Required |
 |--------|---------|----------------------|
-| `status` | `{"service": "mamp\|nanoclaw\|maddyclaw\|rubinsapp\|nginx\|docker"}` | No |
-| `start` | `{"service": "mamp\|nanoclaw\|maddyclaw\|rubinsapp\|nginx"}` | No |
-| `stop` | `{"service": "mamp\|nanoclaw\|maddyclaw\|rubinsapp\|nginx"}` | No |
-| `restart` | `{"service": "mamp\|nanoclaw\|maddyclaw\|rubinsapp\|nginx"}` | No |
+| `status` | `{"service": "mamp\|nanoclaw\|maddyclaw\|devcmdcenter\|rubinsapp\|nginx\|docker"}` | No |
+| `start` | `{"service": "mamp\|nanoclaw\|maddyclaw\|devcmdcenter\|rubinsapp\|nginx"}` | No |
+| `stop` | `{"service": "mamp\|nanoclaw\|maddyclaw\|devcmdcenter\|rubinsapp\|nginx"}` | No |
+| `restart` | `{"service": "mamp\|nanoclaw\|maddyclaw\|devcmdcenter\|rubinsapp\|nginx"}` | No |
 
 **Service name → launchctl label mapping:**
 
@@ -119,6 +119,7 @@ Timeout: none — wait indefinitely for confirmation-required commands.
 |---|---|---|
 | `nanoclaw` | `com.nanoclaw` | Pilluclaw — Coddy (WhatsApp + Telegram orchestrator) |
 | `maddyclaw` | `com.maddyclaw` | Maddyclaw — Maddy bot |
+| `devcmdcenter` | `com.devcmdcenter` | Nanoclaw — Andy (DevCMDCenter bot) |
 | `rubinsapp` | `com.rubinsapp` | Rubinsapp NanoClaw — Rubins App AI agent |
 
 ---
@@ -204,6 +205,7 @@ Then restart Apache:
 ```json
 {"category": "service", "action": "restart", "payload": {"service": "nanoclaw"}}
 {"category": "service", "action": "restart", "payload": {"service": "maddyclaw"}}
+{"category": "service", "action": "restart", "payload": {"service": "devcmdcenter"}}
 {"category": "service", "action": "restart", "payload": {"service": "rubinsapp"}}
 ```
 
