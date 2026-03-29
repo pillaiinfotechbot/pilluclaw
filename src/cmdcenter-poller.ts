@@ -210,7 +210,8 @@ const PRIORITY_WEIGHT: Record<string, number> = {
 };
 
 function scoreTask(task: CmdCenterTask): number {
-  const priorityScore = PRIORITY_WEIGHT[(task.priority ?? 'medium').toLowerCase()] ?? 20;
+  const priorityScore =
+    PRIORITY_WEIGHT[(task.priority ?? 'medium').toLowerCase()] ?? 20;
 
   // Deadline weight: check how close the deadline is
   let deadlineScore = 0;
@@ -219,44 +220,33 @@ function scoreTask(task: CmdCenterTask): number {
     const deadline = new Date(task.deadline).getTime();
     const msPerDay = 24 * 60 * 60 * 1000;
     const daysUntil = (deadline - now) / msPerDay;
-    if (daysUntil < 0) deadlineScore = 40;        // overdue
-    else if (daysUntil < 1) deadlineScore = 30;   // due today
-    else if (daysUntil <= 7) deadlineScore = 20;  // due this week
-    else deadlineScore = 0;                        // later
+    if (daysUntil < 0)
+      deadlineScore = 40; // overdue
+    else if (daysUntil < 1)
+      deadlineScore = 30; // due today
+    else if (daysUntil <= 7)
+      deadlineScore = 20; // due this week
+    else deadlineScore = 0; // later
   }
 
   return priorityScore + deadlineScore;
 }
 
 async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
-  // Fetch tasks across all active pipeline statuses
-  // pending/in_progress → orchestrator + developers
-  // executed → QABot auto-pickup
-  // review → SrDev auto-pickup
-  // completed → Live Test Agent module trigger (PMBot handles)
-  const statuses = ['pending', 'in_progress', 'executed', 'review', 'completed'];
-  const responses = await Promise.all(
-    statuses.map(status =>
-      fetch(`${CMDCENTER_API_URL}/tasks?status=${status}&limit=20`, {
-        headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
-        signal: AbortSignal.timeout(15_000),
-      })
-    )
-  );
+  // Only fetch in_progress tasks — agents pick up tasks assigned to them by the heartbeat.
+  // Do NOT fetch pending/executed/review/completed: those are managed by the heartbeat cron,
+  // and fetching them here causes re-dispatch loops for tasks already being handled.
+  const res = await fetch(`${CMDCENTER_API_URL}/tasks?status=in_progress&limit=50`, {
+    headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
+    signal: AbortSignal.timeout(15_000),
+  });
 
-  for (const res of responses) {
-    if (!res.ok) {
-      throw new Error(`CMDCenter API error ${res.status}: ${await res.text()}`);
-    }
+  if (!res.ok) {
+    throw new Error(`CMDCenter API error ${res.status}: ${await res.text()}`);
   }
 
-  const dataResults = await Promise.all(
-    responses.map(r => r.json() as Promise<{ success: boolean; data: CmdCenterTask[] }>)
-  );
-
-  const allTasks = dataResults.flatMap(d =>
-    d.success && Array.isArray(d.data) ? d.data : []
-  );
+  const data = await res.json() as { success: boolean; data: CmdCenterTask[] };
+  const allTasks = data.success && Array.isArray(data.data) ? data.data : [];
 
   // Only return tasks assigned to known nanoclaw agents
   return allTasks.filter(
