@@ -17,7 +17,7 @@
 import { randomUUID } from 'crypto';
 
 import { logger } from './logger.js';
-import { storeMessageDirect, getAllRegisteredGroups } from './db.js';
+import { storeMessageDirect, storeChatMetadata, getAllRegisteredGroups } from './db.js';
 import { GroupQueue } from './group-queue.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -169,6 +169,9 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
         `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
         `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
         `{"status":"executed","result":"<your summary>"}`;
+
+      // Ensure the chat JID exists in chats table before inserting message (FOREIGN KEY constraint)
+      storeChatMetadata(jid, new Date().toISOString());
 
       storeMessageDirect({
         id: `cmdcenter-task-${task.id}-${randomUUID()}`,

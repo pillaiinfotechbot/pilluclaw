@@ -129,7 +129,10 @@ async function runHeartbeat(): Promise<void> {
     if (missingWebhooks.length > 0) {
       metrics.webhooks_missing = missingWebhooks.length;
       logger.warn(
-        { count: missingWebhooks.length, agents: missingWebhooks.map((a) => a.name) },
+        {
+          count: missingWebhooks.length,
+          agents: missingWebhooks.map((a) => a.name),
+        },
         'CMDCenter heartbeat: missing webhook URLs for agents',
       );
     }
@@ -279,9 +282,7 @@ async function updateTaskStatus(
   });
 
   if (!res.ok) {
-    throw new Error(
-      `CMDCenter API error ${res.status}: ${await res.text()}`,
-    );
+    throw new Error(`CMDCenter API error ${res.status}: ${await res.text()}`);
   }
 }
 
@@ -314,10 +315,7 @@ function analyzeAgentHealth(agents: CmdCenterAgent[]): AgentStatus[] {
 // ── Metrics Logging ───────────────────────────────────────────────────────────
 
 function logMetrics(): void {
-  logger.info(
-    metrics,
-    'CMDCenter heartbeat: dispatch metrics',
-  );
+  logger.info(metrics, 'CMDCenter heartbeat: dispatch metrics');
 }
 
 // ── Export for external monitoring ─────────────────────────────────────────────
