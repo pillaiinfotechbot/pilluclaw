@@ -590,17 +590,32 @@ export async function runContainerAgent(
 
       // Streaming mode: wait for output chain to settle, return completion marker
       if (onOutput) {
-        outputChain.then(() => {
-          logger.info(
-            { group: group.name, duration, newSessionId },
-            'Container completed (streaming mode)',
-          );
-          resolve({
-            status: 'success',
-            result: null,
-            newSessionId,
-          });
-        });
+        outputChain.then(
+          () => {
+            logger.info(
+              { group: group.name, duration, newSessionId },
+              'Container completed (streaming mode)',
+            );
+            resolve({
+              status: 'success',
+              result: null,
+              newSessionId,
+            });
+          },
+          (err) => {
+            // Output chain rejected (onOutput threw) — still resolve so the
+            // queue's state.active is always reset via the finally block.
+            logger.error(
+              { group: group.name, err },
+              'Output chain rejected, resolving as error to unblock queue',
+            );
+            resolve({
+              status: 'error',
+              result: null,
+              error: err instanceof Error ? err.message : String(err),
+            });
+          },
+        );
         return;
       }
 
