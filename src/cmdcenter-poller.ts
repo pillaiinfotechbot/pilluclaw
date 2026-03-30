@@ -135,12 +135,19 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
 
       const jid = folderToJid.get(folder);
       if (!jid) {
-        logger.warn({ agentName, folder }, 'CMDCenter poller: no JID for folder');
+        logger.warn(
+          { agentName, folder },
+          'CMDCenter poller: no JID for folder',
+        );
         continue;
       }
 
       if (TERMINAL_STATUSES.has(task.status)) continue;
-      if (LIVETEST_ONLY_STATUSES.has(task.status) && folder !== 'telegram_livetest') continue;
+      if (
+        LIVETEST_ONLY_STATUSES.has(task.status) &&
+        folder !== 'telegram_livetest'
+      )
+        continue;
 
       const lastInjected = injectedTaskIds.get(task.id);
       if (lastInjected && Date.now() - lastInjected < INJECT_TTL_MS) continue;
@@ -148,13 +155,16 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       const retryCount = task.retry_count ?? 0;
       const maxRetries = task.max_retries ?? 3;
       if (retryCount >= maxRetries) {
-        logger.warn({ taskId: task.id, retryCount, maxRetries }, 'Task max retries exceeded');
+        logger.warn(
+          { taskId: task.id, retryCount, maxRetries },
+          'Task max retries exceeded',
+        );
         continue;
       }
 
-      const trigger  = FOLDER_TO_TRIGGER[folder] ?? '/cmd';
+      const trigger = FOLDER_TO_TRIGGER[folder] ?? '/cmd';
       const priority = (task.priority ?? 'medium').toUpperCase();
-      const content  = buildTaskPrompt(trigger, priority, task, role);
+      const content = buildTaskPrompt(trigger, priority, task, role);
 
       storeChatMetadata(jid, new Date().toISOString());
       storeMessageDirect({
@@ -172,7 +182,10 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       injectedTaskIds.set(task.id, Date.now());
       injected++;
 
-      logger.info({ taskId: task.id, agentName, role, folder, jid }, 'CMDCenter poller: injected task');
+      logger.info(
+        { taskId: task.id, agentName, role, folder, jid },
+        'CMDCenter poller: injected task',
+      );
     }
 
     if (injected > 0) {
@@ -244,9 +257,10 @@ function scoreTask(task: CmdCenterTask): number {
  * Stage 2 — QA:        executed               → qa_agent (default: QA Agent)
  * Stage 3 — Reviewer:  review                 → reviewer_agent (default: Sr Developer)
  */
-function resolveAgentForStage(
-  task: CmdCenterTask,
-): { agentName: string | null; role: 'executor' | 'qa' | 'reviewer' } {
+function resolveAgentForStage(task: CmdCenterTask): {
+  agentName: string | null;
+  role: 'executor' | 'qa' | 'reviewer';
+} {
   const s = task.status;
   if (s === 'pending' || s === 'in_progress') {
     return { agentName: task.assigned_agent, role: 'executor' };
@@ -255,7 +269,10 @@ function resolveAgentForStage(
     return { agentName: task.qa_agent ?? 'QA Agent', role: 'qa' };
   }
   if (s === 'review') {
-    return { agentName: task.reviewer_agent ?? 'Sr Developer', role: 'reviewer' };
+    return {
+      agentName: task.reviewer_agent ?? 'Sr Developer',
+      role: 'reviewer',
+    };
   }
   return { agentName: null, role: 'executor' };
 }
@@ -277,62 +294,82 @@ function buildTaskPrompt(
     ? `## Definition of Done\n${task.definition_of_completed}\n\n`
     : '';
 
+  // Common API reference block included in every prompt
+  const apiRef =
+    `\n\n---\n## CMDCenter API Reference\nBase: ${CMDCENTER_API_URL}\nHeader: X-Bot-Key: ${CMDCENTER_BOT_KEY}\n\n` +
+    `### Read task + steps + notes\n` +
+    `GET /tasks/${task.id}          → full task with steps array\n` +
+    `GET /tasks/${task.id}/notes    → all agent notes (chronological)\n` +
+    `GET /tasks/${task.id}/communications → full agent↔LLM exchange log\n\n` +
+    `### Log communication (call this for EVERY significant action/thought)\n` +
+    `POST /tasks/${task.id}/communication\n` +
+    `{"agent":"<YourName>","msg_type":"thinking|request|response|note|error","direction":"agent|llm|system",\n` +
+    ` "content":"<your thought/action/result>","step_id":<step_id or null>,\n` +
+    ` "tokens_in":<N>,"tokens_out":<N>,"cost":<USD float>,"model_used":"<model>"}\n\n` +
+    `### Update a step\n` +
+    `PUT /steps/<step_id>\n` +
+    `{"status":"in_progress|completed|failed","output":"<result>","assigned_agent":"<YourName>",\n` +
+    ` "cost":<USD>,"tokens_in":<N>,"tokens_out":<N>,"model_used":"<model>","duration_ms":<ms>}\n`;
+
   if (role === 'executor') {
     return (
-      base + dod +
+      base +
+      dod +
       `---\n` +
-      `You are the **Executor**. Implement this task completely.\n` +
-      `After completing, log your work and mark as executed:\n\n` +
-      `# Step 1 — Log your work\n` +
-      `POST ${CMDCENTER_API_URL}/tasks/${task.id}/note\n` +
-      `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
-      `{"agent":"${task.assigned_agent ?? 'Agent'}","stage":"executed","note":"What I did, why, and how — [your summary here]"}\n\n` +
-      `# Step 2 — Mark executed\n` +
-      `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
-      `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
-      `{"status":"executed","thinking_log":"<your detailed result>"}`
+      `You are the **Executor**. Your job:\n` +
+      `1. GET /tasks/${task.id} — read the full task + steps\n` +
+      `2. Work through EACH step in order:\n` +
+      `   a. PUT /steps/<step_id> {"status":"in_progress","assigned_agent":"${task.assigned_agent ?? 'Agent'}"}\n` +
+      `   b. Do the work for the step\n` +
+      `   c. PUT /steps/<step_id> {"status":"completed","output":"<result>","cost":<USD>,...}\n` +
+      `   d. POST /tasks/${task.id}/communication {"agent":"${task.assigned_agent ?? 'Agent'}","msg_type":"note","content":"Step <N> done: <what/why/how>"}\n` +
+      `3. After ALL steps done, add a note summarising your work:\n` +
+      `POST /tasks/${task.id}/note {"agent":"${task.assigned_agent ?? 'Agent'}","stage":"executed","note":"<summary of what was done>"}\n` +
+      `4. Mark the task executed:\n` +
+      `PUT /tasks/${task.id} {"status":"executed","thinking_log":"<detailed result>"}` +
+      apiRef
     );
   }
 
   if (role === 'qa') {
     return (
-      base + dod +
+      base +
+      dod +
       `---\n` +
-      `You are the **QA Agent**. This task has been executed and needs quality validation.\n\n` +
-      `1. Review the task description and Definition of Done above\n` +
-      `2. Check task steps: GET ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
-      `3. Test/validate against every acceptance criterion\n` +
-      `4. Log your QA findings:\n` +
-      `POST ${CMDCENTER_API_URL}/tasks/${task.id}/note\n` +
-      `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
-      `{"agent":"QA Agent","stage":"qa_check","note":"QA findings: [what you tested, result, pass/fail reason]"}\n\n` +
-      `# If PASS — move to review:\n` +
-      `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
-      `{"status":"review","thinking_log":"✅ QA PASS: [summary]"}\n\n` +
-      `# If FAIL — reset to pending with specific fix instructions:\n` +
-      `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
-      `{"status":"pending","rejected_reason":"❌ QA FAIL: [what failed and exact fix needed]"}`
+      `You are the **QA Agent**. This task has been executed — validate every step against the Definition of Done.\n\n` +
+      `1. GET /tasks/${task.id} — read full task, steps, and their outputs\n` +
+      `2. GET /tasks/${task.id}/notes — read executor notes\n` +
+      `3. For EACH step, verify the output matches its acceptance criteria\n` +
+      `4. Log your findings per step:\n` +
+      `POST /tasks/${task.id}/communication {"agent":"QA Agent","msg_type":"note","content":"Step <N> QA: <pass/fail + reason>"}\n\n` +
+      `5. Add overall QA note:\n` +
+      `POST /tasks/${task.id}/note {"agent":"QA Agent","stage":"qa_check","note":"QA findings: <detailed>"}\n\n` +
+      `# If ALL steps PASS:\n` +
+      `PUT /tasks/${task.id} {"status":"review","thinking_log":"✅ QA PASS: <summary>"}\n\n` +
+      `# If ANY step FAILS:\n` +
+      `PUT /tasks/${task.id} {"status":"pending","rejected_reason":"❌ QA FAIL: <step N failed — exact fix needed>"}` +
+      apiRef
     );
   }
 
   // reviewer
   return (
-    base + dod +
+    base +
+    dod +
     `---\n` +
     `You are the **Reviewer**. QA has passed this task — perform final audit.\n\n` +
-    `1. GET ${CMDCENTER_API_URL}/tasks/${task.id} — read full task + QA notes\n` +
-    `2. GET ${CMDCENTER_API_URL}/tasks/${task.id}/notes — read all agent notes\n` +
-    `3. Audit the work against requirements and Definition of Done\n` +
-    `4. Log your review decision:\n` +
-    `POST ${CMDCENTER_API_URL}/tasks/${task.id}/note\n` +
-    `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
-    `{"agent":"${task.reviewer_agent ?? 'Sr Developer'}","stage":"review","note":"Review decision: [what you audited and why pass/reject]"}\n\n` +
+    `1. GET /tasks/${task.id} — read full task with all steps and their outputs\n` +
+    `2. GET /tasks/${task.id}/notes — read executor + QA notes\n` +
+    `3. GET /tasks/${task.id}/communications — read the full agent communication log\n` +
+    `4. Audit EVERY step output against the Definition of Done\n` +
+    `5. Log your review:\n` +
+    `POST /tasks/${task.id}/communication {"agent":"${task.reviewer_agent ?? 'Sr Developer'}","msg_type":"thinking","content":"<your review reasoning>"}\n` +
+    `POST /tasks/${task.id}/note {"agent":"${task.reviewer_agent ?? 'Sr Developer'}","stage":"review","note":"<review decision + rationale>"}\n\n` +
     `# If APPROVED:\n` +
-    `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
-    `{"status":"completed","reviewed_at":"${new Date().toISOString()}"}\n\n` +
-    `# If REJECTED — send back with clear reason:\n` +
-    `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
-    `{"status":"rejected","rejected_reason":"🔴 Review REJECTED: [specific reason and what must be fixed]"}`
+    `PUT /tasks/${task.id} {"status":"completed","reviewed_at":"${new Date().toISOString()}"}\n\n` +
+    `# If REJECTED:\n` +
+    `PUT /tasks/${task.id} {"status":"rejected","rejected_reason":"🔴 REJECTED: <step N — specific fix required>"}` +
+    apiRef
   );
 }
 
@@ -340,10 +377,16 @@ async function fetchPipelineTasks(status: string): Promise<CmdCenterTask[]> {
   try {
     const res = await fetch(
       `${CMDCENTER_API_URL}/tasks?status=${status}&limit=50`,
-      { headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY }, signal: AbortSignal.timeout(15_000) },
+      {
+        headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
+        signal: AbortSignal.timeout(15_000),
+      },
     );
     if (!res.ok) return [];
-    const data = (await res.json()) as { success: boolean; data: CmdCenterTask[] };
+    const data = (await res.json()) as {
+      success: boolean;
+      data: CmdCenterTask[];
+    };
     return data.success && Array.isArray(data.data) ? data.data : [];
   } catch (err) {
     logger.error({ err, status }, 'Failed to fetch tasks');
@@ -364,10 +407,14 @@ async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
 
   // Deduplicate
   const seen = new Set<number>();
-  const unique = allTasks.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
+  const unique = allTasks.filter((t) => {
+    if (seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
 
   // Filter: at least one known agent must exist for this task's current stage
-  return unique.filter(t => {
+  return unique.filter((t) => {
     const { agentName } = resolveAgentForStage(t);
     return agentName && agentName in AGENT_TO_FOLDER;
   });
