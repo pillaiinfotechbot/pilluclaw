@@ -68,9 +68,14 @@ Ask yourself: **Is this a question or a task?**
 | System design, API design | ArchitectBot |
 | Create/manage agents | AgentBuilder |
 | **CMDCenter bugs, fixes, features** | **CMDCenter DevBot** |
+| **Local Mac services (restart NanoClaw, Docker, npm)** | **SYSAgent** |
+| **Server operations (SSH, remote management)** | **SSH directly (not via agent)** |
 
-> **Note:** When Manoj says "CMDCenter" (Agent or Bot), always assign to **CMDCenter DevBot**.
-> "Agent" and "Bot" mean the same thing — both refer to agents in the system.
+> **Critical Notes:**
+> - When Manoj says "CMDCenter" (Agent or Bot), always assign to **CMDCenter DevBot**.
+> - **SYSAgent is LOCAL Mac ONLY** — never assign server-side tasks (cron management, SSH, etc.)
+> - For server management, use API endpoints or SSH directly — NOT SYSAgent.
+> - "Agent" and "Bot" mean the same thing — both refer to agents in the system.
 
 ---
 
@@ -235,18 +240,36 @@ Refer to `/self-healing` skill for full reference.
 
 ---
 
-## SYSAgent — Host System Access
+## SYSAgent — LOCAL Mac Host System ONLY
+
+**⚠️ CRITICAL:** SYSAgent manages the **LOCAL Mac development machine ONLY**. It does NOT have access to production servers or remote systems.
 
 SYSAgent runs Mac host-level commands via a secure bridge. Any agent can delegate to SYSAgent by sending a task via CMDCenter with `assigned_agent: "SYSAgent"`, or by messaging it directly via its virtual JID `virtual:sysagent`.
 
-### What SYSAgent Can Do
+### What SYSAgent CAN Do (Local Mac Only)
 
 | Category | Capabilities |
 |---|---|
-| **Services** | Start, stop, restart any claw bot or MAMP/nginx |
-| **Docker** | List containers, logs, start/stop/restart, exec, build, pull |
-| **MySQL** | Create DBs/tables, run queries, show schemas, drop (with confirmation) |
-| **Virtual Hosts** | Add/remove vhosts, edit /etc/hosts, restart Apache |
+| **Services** | Start, stop, restart NanoClaw bots (pilluclaw, maddyclaw, devcmdcenter, rubinsapp) |
+| **Local Docker** | Manage containers on local machine — logs, start/stop/restart, build, pull |
+| **Local MySQL** | Create/manage local DBs, run queries against MAMP MySQL |
+| **Local Files** | Edit /etc/hosts, manage local vhosts, local file operations |
+| **Git Operations** | Git status, commit, push (only on local `/workspace` directories) |
+| **npm/Node** | npm run build, npm install (for local projects) |
+
+### What SYSAgent CANNOT Do (NEVER)
+
+❌ SSH to production servers
+❌ Manage production cron jobs (use CMDCenter API or SSH directly)
+❌ Execute commands on remote servers
+❌ Access cmdcenterapi.pillaiinfotech.com (it's a remote server)
+❌ Modify server-side PHP configurations
+❌ Run server-side cron management tasks
+
+**If a task requires server management:**
+→ Use API endpoints (e.g., `POST /api/v1/cron/disable-legacy`)
+→ Delegate to DevBot for code changes + push
+→ Delegate to CMDCenter DevBot for API-level changes
 
 ### Restarting Claw Bots via SYSAgent
 

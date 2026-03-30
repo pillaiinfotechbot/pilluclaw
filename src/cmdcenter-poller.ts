@@ -256,27 +256,58 @@ function scoreTask(task: CmdCenterTask): number {
 }
 
 async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
-  // Only fetch in_progress tasks — agents pick up tasks assigned to them by the heartbeat.
-  // Do NOT fetch pending/executed/review/completed: those are managed by the heartbeat cron,
-  // and fetching them here causes re-dispatch loops for tasks already being handled.
-  //   executed/review/completed/rejected → terminal stages managed by heartbeat only
-  const res = await fetch(
-    `${CMDCENTER_API_URL}/tasks?status=in_progress&limit=50`,
-    {
-      headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
-      signal: AbortSignal.timeout(15_000),
-    },
-  );
+  // Fetch both pending AND in_progress tasks.
+  // Since we migrated away from the PHP heartbeat cron (cron #2 is disabled),
+  // NanoClaw now handles the full task lifecycle:
+  //   pending → inject message → in_progress → executed → review → completed
+  // This replaces the old flow where the PHP cron transitioned pending → in_progress.
+  // Do NOT fetch executed/review/completed/rejected: those are terminal stages.
 
-  if (!res.ok) {
-    throw new Error(`CMDCenter API error ${res.status}: ${await res.text()}`);
+  const allTasks: CmdCenterTask[] = [];
+
+  // Fetch pending tasks
+  try {
+    const pendingRes = await fetch(
+      `${CMDCENTER_API_URL}/tasks?status=pending&limit=50`,
+      {
+        headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    if (pendingRes.ok) {
+      const data = (await pendingRes.json()) as {
+        success: boolean;
+        data: CmdCenterTask[];
+      };
+      if (data.success && Array.isArray(data.data)) {
+        allTasks.push(...data.data);
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, 'Failed to fetch pending tasks');
   }
 
-  const data = (await res.json()) as {
-    success: boolean;
-    data: CmdCenterTask[];
-  };
-  const allTasks = data.success && Array.isArray(data.data) ? data.data : [];
+  // Fetch in_progress tasks
+  try {
+    const inProgressRes = await fetch(
+      `${CMDCENTER_API_URL}/tasks?status=in_progress&limit=50`,
+      {
+        headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    if (inProgressRes.ok) {
+      const data = (await inProgressRes.json()) as {
+        success: boolean;
+        data: CmdCenterTask[];
+      };
+      if (data.success && Array.isArray(data.data)) {
+        allTasks.push(...data.data);
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, 'Failed to fetch in_progress tasks');
+  }
 
   // Safety guard: never re-dispatch terminal statuses even if the API returns them
   const TERMINAL_STATUSES = new Set([
