@@ -17,7 +17,11 @@
 import { randomUUID } from 'crypto';
 
 import { logger } from './logger.js';
-import { storeMessageDirect, storeChatMetadata, getAllRegisteredGroups } from './db.js';
+import {
+  storeMessageDirect,
+  storeChatMetadata,
+  getAllRegisteredGroups,
+} from './db.js';
 import { GroupQueue } from './group-queue.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
