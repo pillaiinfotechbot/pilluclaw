@@ -311,9 +311,9 @@ function buildTaskPrompt(
     `{"status":"in_progress|completed|failed","output":"<result>","assigned_agent":"<YourName>",\n` +
     ` "cost":<USD>,"tokens_in":<N>,"tokens_out":<N>,"model_used":"<model>","duration_ms":<ms>}\n`;
 
-  const executorName  = task.assigned_agent  ?? 'Agent';
-  const qaName        = task.qa_agent        ?? 'QA Agent';
-  const reviewerName  = task.reviewer_agent  ?? 'Sr Developer';
+  const executorName = task.assigned_agent ?? 'Agent';
+  const qaName = task.qa_agent ?? 'QA Agent';
+  const reviewerName = task.reviewer_agent ?? 'Sr Developer';
 
   if (role === 'executor') {
     return (
@@ -321,16 +321,32 @@ function buildTaskPrompt(
       dod +
       `---\n` +
       `You are **${executorName}** — the Executor for this task.\n\n` +
-      `## Your steps\n` +
-      `GET /tasks/${task.id} — read the full task. The \`steps\` array contains every step.\n` +
+      `## Step 0 — Read the task\n` +
+      `GET /tasks/${task.id}\n` +
+      `Read the full task. Check the \`steps\` array.\n\n` +
+      `## If \`steps\` array is EMPTY — define steps first\n` +
+      `Before doing any work, create ALL steps for the full pipeline: your implementation steps AND\n` +
+      `QA test steps (assigned_agent: "${task.qa_agent ?? 'QA Agent'}") AND reviewer steps (assigned_agent: "${task.reviewer_agent ?? 'Sr Developer'}").\n\n` +
+      `For each step call:\n` +
+      `POST /steps\n` +
+      `{"task_id":${task.id},"title":"<step title>","description":"<what to do>","assigned_agent":"<agent name>","step_number":<N>}\n\n` +
+      `Example for "Create Login Form":\n` +
+      `  step 1: "Create HTML form file" → assigned_agent: "${executorName}"\n` +
+      `  step 2: "Add form fields and validation" → assigned_agent: "${executorName}"\n` +
+      `  step 3: "Integrate /auth/login API call" → assigned_agent: "${executorName}"\n` +
+      `  step 4: "Confirm API responds correctly" → assigned_agent: "${task.qa_agent ?? 'QA Agent'}"\n` +
+      `  step 5: "Confirm form loads without errors" → assigned_agent: "${task.qa_agent ?? 'QA Agent'}"\n` +
+      `  step 6: "Review code standards and layout" → assigned_agent: "${task.reviewer_agent ?? 'Sr Developer'}"\n\n` +
+      `## If \`steps\` array already has steps — skip Step 0 above\n` +
       `Work ONLY through steps where \`assigned_agent == "${executorName}"\`.\n` +
       `Do NOT touch steps assigned to other agents (QA, Reviewer, etc.).\n\n` +
       `## For each of YOUR steps, in order:\n` +
       `1. PUT /steps/<step_id>  → {"status":"in_progress","assigned_agent":"${executorName}"}\n` +
-      `2. Do the actual work described in the step\n` +
-      `3. POST /tasks/${task.id}/communication → {"agent":"${executorName}","msg_type":"thinking","step_id":<id>,"content":"<what you are doing and why>"}\n` +
-      `4. PUT /steps/<step_id>  → {"status":"completed","output":"<result>","cost":<USD>,"tokens_in":<N>,"tokens_out":<N>,"model_used":"<model>","duration_ms":<ms>}\n` +
-      `5. POST /tasks/${task.id}/communication → {"agent":"${executorName}","msg_type":"note","step_id":<id>,"content":"Done: <what was done, why this satisfies the step>"}\n\n` +
+      `2. Mark task in progress: PUT /tasks/${task.id} → {"status":"in_progress"}\n` +
+      `3. Do the actual work described in the step\n` +
+      `4. POST /tasks/${task.id}/communication → {"agent":"${executorName}","msg_type":"thinking","step_id":<id>,"content":"<what you are doing and why>"}\n` +
+      `5. PUT /steps/<step_id>  → {"status":"completed","output":"<result>","cost":<USD>,"tokens_in":<N>,"tokens_out":<N>,"model_used":"<model>","duration_ms":<ms>}\n` +
+      `6. POST /tasks/${task.id}/communication → {"agent":"${executorName}","msg_type":"note","step_id":<id>,"content":"Done: <what was done, why this satisfies the step>"}\n\n` +
       `## After ALL your steps are complete:\n` +
       `POST /tasks/${task.id}/note → {"agent":"${executorName}","stage":"executed","note":"<summary: what was built, how it meets the Definition of Done>"}\n` +
       `PUT /tasks/${task.id}      → {"status":"executed","thinking_log":"<detailed result>"}` +
