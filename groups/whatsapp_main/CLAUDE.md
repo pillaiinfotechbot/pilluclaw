@@ -206,6 +206,14 @@ If virtual group count < 16: re-register missing agent groups via `mcp__nanoclaw
 
 CMDCenter integrations `webhook_url` should already be set to these virtual JIDs. If not, update them via `PUT /integrations/{id}` with `{"webhook_url":"virtual:xxx"}`. Reset all rejected/stuck tasks with retry_count=0 after fixing.
 
+### 9. System migrations — update consumers when producers change
+When migrating from one system to another (e.g., PHP crons → NanoClaw scheduling), **always update the consuming system** to handle the transition:
+- **Example**: When PHP heartbeat cron (#2) is disabled, nanoclaw poller must be updated to fetch BOTH pending AND in_progress tasks (it was only fetching in_progress)
+- **Pattern**: If System A used to move data to System B, and you're disabling System A, ensure System B can handle data that would previously have been moved by System A
+- **Testing**: After disabling a producer, verify the consumer is working before declaring migration complete. Check: Are tasks flowing? Are queues empty? Are error rates zero?
+- **Incident**: 18 tasks got stuck when PHP cron was disabled but poller wasn't updated. This cost 24h of outage yesterday.
+- **Prevention**: When disabling a cron/system/service, immediately update dependent systems and test before deploying
+
 ---
 
 ## Self-Healing — Auto-Delegate System Issues
