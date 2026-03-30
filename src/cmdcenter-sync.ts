@@ -17,21 +17,21 @@ const CMDCENTER_BOT_KEY = process.env.CMDCENTER_BOT_KEY ?? 'nc_bot_pillai2026';
 
 // Map group folder → CMDCenter agent name
 const FOLDER_TO_AGENT: Record<string, string> = {
-  telegram_ceo:          'CEO Agent',
-  telegram_coo:          'COO Agent',
-  telegram_cto:          'CTO Agent',
-  telegram_cmo:          'CMO Agent',
-  telegram_cfo:          'CFO Agent',
-  telegram_chro:         'CHRO Agent',
-  telegram_devbot:       'Dev Agent',
-  telegram_qabot:        'QA Agent',
-  telegram_pmbot:        'PM Agent',
+  telegram_ceo: 'CEO Agent',
+  telegram_coo: 'COO Agent',
+  telegram_cto: 'CTO Agent',
+  telegram_cmo: 'CMO Agent',
+  telegram_cfo: 'CFO Agent',
+  telegram_chro: 'CHRO Agent',
+  telegram_devbot: 'Dev Agent',
+  telegram_qabot: 'QA Agent',
+  telegram_pmbot: 'PM Agent',
   telegram_architectbot: 'Architect Agent',
-  telegram_localaibot:   'LocalAIBot',
-  telegram_cmdcenter:    'CMDCenter DevBot',
+  telegram_localaibot: 'LocalAIBot',
+  telegram_cmdcenter: 'CMDCenter DevBot',
   telegram_agentbuilder: 'Agent Builder',
-  telegram_srdev:        'Sr Developer',
-  telegram_sysagent:     'SYSAgent',
+  telegram_srdev: 'Sr Developer',
+  telegram_sysagent: 'SYSAgent',
 };
 
 async function patchAgent(
@@ -39,15 +39,18 @@ async function patchAgent(
   payload: Record<string, string | null>,
 ): Promise<void> {
   try {
-    const res = await fetch(`${CMDCENTER_API_URL}/agents/${encodeURIComponent(agentName)}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Bot-Key': CMDCENTER_BOT_KEY,
+    const res = await fetch(
+      `${CMDCENTER_API_URL}/agents/${encodeURIComponent(agentName)}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Bot-Key': CMDCENTER_BOT_KEY,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(8_000),
       },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(8_000),
-    });
+    );
     if (!res.ok) {
       logger.warn(
         { agentName, status: res.status },

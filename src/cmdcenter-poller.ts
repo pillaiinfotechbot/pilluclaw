@@ -126,57 +126,37 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
 
     let injected = 0;
     for (const task of sortedTasks) {
-      const agentName: string = task.assigned_agent ?? '';
+      // ── Determine which agent handles this task at its current stage ──
+      const { agentName, role } = resolveAgentForStage(task);
+      if (!agentName) continue;
+
       const folder = AGENT_TO_FOLDER[agentName];
-      if (!folder) continue; // not a nanoclaw agent
+      if (!folder) continue;
 
       const jid = folderToJid.get(folder);
       if (!jid) {
-        logger.warn(
-          { agentName, folder },
-          'CMDCenter poller: no JID for folder — group not registered',
-        );
+        logger.warn({ agentName, folder }, 'CMDCenter poller: no JID for folder');
         continue;
       }
 
-      // Skip terminal statuses — task is fully done, no agent action needed
       if (TERMINAL_STATUSES.has(task.status)) continue;
+      if (LIVETEST_ONLY_STATUSES.has(task.status) && folder !== 'telegram_livetest') continue;
 
-      // completed tasks are only for LiveTest — skip for all other agents
-      if (
-        LIVETEST_ONLY_STATUSES.has(task.status) &&
-        folder !== 'telegram_livetest'
-      )
-        continue;
-
-      // Skip if recently injected (within TTL window) — prevents duplicate queuing
       const lastInjected = injectedTaskIds.get(task.id);
       if (lastInjected && Date.now() - lastInjected < INJECT_TTL_MS) continue;
 
-      // Respect max_retries: if exhausted, skip (heartbeat/watchdog will escalate)
       const retryCount = task.retry_count ?? 0;
       const maxRetries = task.max_retries ?? 3;
       if (retryCount >= maxRetries) {
-        logger.warn(
-          { taskId: task.id, retryCount, maxRetries },
-          'CMDCenter poller: task max retries exceeded — skipping (heartbeat will escalate)',
-        );
+        logger.warn({ taskId: task.id, retryCount, maxRetries }, 'Task max retries exceeded');
         continue;
       }
 
-      const trigger = FOLDER_TO_TRIGGER[folder] ?? '/cmd';
+      const trigger  = FOLDER_TO_TRIGGER[folder] ?? '/cmd';
       const priority = (task.priority ?? 'medium').toUpperCase();
-      const content =
-        `${trigger} 📋 Task #${task.id} [${priority}]: ${task.title}\n\n` +
-        (task.description ? `${task.description}\n\n` : '') +
-        `---\nWhen done, mark task as executed:\n` +
-        `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
-        `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
-        `{"status":"executed","result":"<your summary>"}`;
+      const content  = buildTaskPrompt(trigger, priority, task, role);
 
-      // Ensure the chat JID exists in chats table before inserting message (FOREIGN KEY constraint)
       storeChatMetadata(jid, new Date().toISOString());
-
       storeMessageDirect({
         id: `cmdcenter-task-${task.id}-${randomUUID()}`,
         chat_jid: jid,
@@ -192,10 +172,7 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       injectedTaskIds.set(task.id, Date.now());
       injected++;
 
-      logger.info(
-        { taskId: task.id, agentName, folder, jid },
-        'CMDCenter poller: injected task into group queue',
-      );
+      logger.info({ taskId: task.id, agentName, role, folder, jid }, 'CMDCenter poller: injected task');
     }
 
     if (injected > 0) {
@@ -212,7 +189,10 @@ interface CmdCenterTask {
   id: number;
   title: string;
   description: string | null;
+  definition_of_completed: string | null;
   assigned_agent: string | null;
+  qa_agent: string | null;
+  reviewer_agent: string | null;
   priority: string | null;
   status: string;
   retry_count: number | null;
@@ -255,74 +235,140 @@ function scoreTask(task: CmdCenterTask): number {
   return priorityScore + deadlineScore;
 }
 
+// ── Stage routing ─────────────────────────────────────────────────────────────
+
+/**
+ * Determine which agent acts on a task at its current pipeline stage.
+ *
+ * Stage 1 — Executor:  pending / in_progress  → assigned_agent
+ * Stage 2 — QA:        executed               → qa_agent (default: QA Agent)
+ * Stage 3 — Reviewer:  review                 → reviewer_agent (default: Sr Developer)
+ */
+function resolveAgentForStage(
+  task: CmdCenterTask,
+): { agentName: string | null; role: 'executor' | 'qa' | 'reviewer' } {
+  const s = task.status;
+  if (s === 'pending' || s === 'in_progress') {
+    return { agentName: task.assigned_agent, role: 'executor' };
+  }
+  if (s === 'executed') {
+    return { agentName: task.qa_agent ?? 'QA Agent', role: 'qa' };
+  }
+  if (s === 'review') {
+    return { agentName: task.reviewer_agent ?? 'Sr Developer', role: 'reviewer' };
+  }
+  return { agentName: null, role: 'executor' };
+}
+
+/**
+ * Build the task prompt for the target agent based on their pipeline role.
+ */
+function buildTaskPrompt(
+  trigger: string,
+  priority: string,
+  task: CmdCenterTask,
+  role: 'executor' | 'qa' | 'reviewer',
+): string {
+  const base =
+    `${trigger} 📋 Task #${task.id} [${priority}]: ${task.title}\n\n` +
+    (task.description ? `${task.description}\n\n` : '');
+
+  const dod = task.definition_of_completed
+    ? `## Definition of Done\n${task.definition_of_completed}\n\n`
+    : '';
+
+  if (role === 'executor') {
+    return (
+      base + dod +
+      `---\n` +
+      `You are the **Executor**. Implement this task completely.\n` +
+      `After completing, log your work and mark as executed:\n\n` +
+      `# Step 1 — Log your work\n` +
+      `POST ${CMDCENTER_API_URL}/tasks/${task.id}/note\n` +
+      `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
+      `{"agent":"${task.assigned_agent ?? 'Agent'}","stage":"executed","note":"What I did, why, and how — [your summary here]"}\n\n` +
+      `# Step 2 — Mark executed\n` +
+      `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
+      `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
+      `{"status":"executed","thinking_log":"<your detailed result>"}`
+    );
+  }
+
+  if (role === 'qa') {
+    return (
+      base + dod +
+      `---\n` +
+      `You are the **QA Agent**. This task has been executed and needs quality validation.\n\n` +
+      `1. Review the task description and Definition of Done above\n` +
+      `2. Check task steps: GET ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
+      `3. Test/validate against every acceptance criterion\n` +
+      `4. Log your QA findings:\n` +
+      `POST ${CMDCENTER_API_URL}/tasks/${task.id}/note\n` +
+      `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
+      `{"agent":"QA Agent","stage":"qa_check","note":"QA findings: [what you tested, result, pass/fail reason]"}\n\n` +
+      `# If PASS — move to review:\n` +
+      `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
+      `{"status":"review","thinking_log":"✅ QA PASS: [summary]"}\n\n` +
+      `# If FAIL — reset to pending with specific fix instructions:\n` +
+      `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
+      `{"status":"pending","rejected_reason":"❌ QA FAIL: [what failed and exact fix needed]"}`
+    );
+  }
+
+  // reviewer
+  return (
+    base + dod +
+    `---\n` +
+    `You are the **Reviewer**. QA has passed this task — perform final audit.\n\n` +
+    `1. GET ${CMDCENTER_API_URL}/tasks/${task.id} — read full task + QA notes\n` +
+    `2. GET ${CMDCENTER_API_URL}/tasks/${task.id}/notes — read all agent notes\n` +
+    `3. Audit the work against requirements and Definition of Done\n` +
+    `4. Log your review decision:\n` +
+    `POST ${CMDCENTER_API_URL}/tasks/${task.id}/note\n` +
+    `X-Bot-Key: ${CMDCENTER_BOT_KEY}\n` +
+    `{"agent":"${task.reviewer_agent ?? 'Sr Developer'}","stage":"review","note":"Review decision: [what you audited and why pass/reject]"}\n\n` +
+    `# If APPROVED:\n` +
+    `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
+    `{"status":"completed","reviewed_at":"${new Date().toISOString()}"}\n\n` +
+    `# If REJECTED — send back with clear reason:\n` +
+    `PUT ${CMDCENTER_API_URL}/tasks/${task.id}\n` +
+    `{"status":"rejected","rejected_reason":"🔴 Review REJECTED: [specific reason and what must be fixed]"}`
+  );
+}
+
+async function fetchPipelineTasks(status: string): Promise<CmdCenterTask[]> {
+  try {
+    const res = await fetch(
+      `${CMDCENTER_API_URL}/tasks?status=${status}&limit=50`,
+      { headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY }, signal: AbortSignal.timeout(15_000) },
+    );
+    if (!res.ok) return [];
+    const data = (await res.json()) as { success: boolean; data: CmdCenterTask[] };
+    return data.success && Array.isArray(data.data) ? data.data : [];
+  } catch (err) {
+    logger.error({ err, status }, 'Failed to fetch tasks');
+    return [];
+  }
+}
+
 async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
-  // Fetch both pending AND in_progress tasks.
-  // Since we migrated away from the PHP heartbeat cron (cron #2 is disabled),
-  // NanoClaw now handles the full task lifecycle:
-  //   pending → inject message → in_progress → executed → review → completed
-  // This replaces the old flow where the PHP cron transitioned pending → in_progress.
-  // Do NOT fetch executed/review/completed/rejected: those are terminal stages.
-
-  const allTasks: CmdCenterTask[] = [];
-
-  // Fetch pending tasks
-  try {
-    const pendingRes = await fetch(
-      `${CMDCENTER_API_URL}/tasks?status=pending&limit=50`,
-      {
-        headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
-        signal: AbortSignal.timeout(15_000),
-      },
-    );
-    if (pendingRes.ok) {
-      const data = (await pendingRes.json()) as {
-        success: boolean;
-        data: CmdCenterTask[];
-      };
-      if (data.success && Array.isArray(data.data)) {
-        allTasks.push(...data.data);
-      }
-    }
-  } catch (err) {
-    logger.error({ err }, 'Failed to fetch pending tasks');
-  }
-
-  // Fetch in_progress tasks
-  try {
-    const inProgressRes = await fetch(
-      `${CMDCENTER_API_URL}/tasks?status=in_progress&limit=50`,
-      {
-        headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
-        signal: AbortSignal.timeout(15_000),
-      },
-    );
-    if (inProgressRes.ok) {
-      const data = (await inProgressRes.json()) as {
-        success: boolean;
-        data: CmdCenterTask[];
-      };
-      if (data.success && Array.isArray(data.data)) {
-        allTasks.push(...data.data);
-      }
-    }
-  } catch (err) {
-    logger.error({ err }, 'Failed to fetch in_progress tasks');
-  }
-
-  // Safety guard: never re-dispatch terminal statuses even if the API returns them
-  const TERMINAL_STATUSES = new Set([
-    'executed',
-    'review',
-    'completed',
-    'rejected',
-    'cancelled',
+  // Full pipeline: fetch all active stages
+  const [pending, inProgress, executed, review] = await Promise.all([
+    fetchPipelineTasks('pending'),
+    fetchPipelineTasks('in_progress'),
+    fetchPipelineTasks('executed'),
+    fetchPipelineTasks('review'),
   ]);
 
-  // Only return tasks assigned to known nanoclaw agents and not in terminal state
-  return allTasks.filter(
-    (t) =>
-      t.assigned_agent &&
-      t.assigned_agent in AGENT_TO_FOLDER &&
-      !TERMINAL_STATUSES.has(t.status),
-  );
+  const allTasks = [...pending, ...inProgress, ...executed, ...review];
+
+  // Deduplicate
+  const seen = new Set<number>();
+  const unique = allTasks.filter(t => { if (seen.has(t.id)) return false; seen.add(t.id); return true; });
+
+  // Filter: at least one known agent must exist for this task's current stage
+  return unique.filter(t => {
+    const { agentName } = resolveAgentForStage(t);
+    return agentName && agentName in AGENT_TO_FOLDER;
+  });
 }
