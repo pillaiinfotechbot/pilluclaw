@@ -62,6 +62,7 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { startCmdCenterPoller } from './cmdcenter-poller.js';
 import { startCmdCenterHeartbeat } from './cmdcenter-heartbeat.js';
+import { reportAgentActive, reportAgentIdle } from './cmdcenter-sync.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
 
@@ -363,6 +364,10 @@ async function runAgent(
       }
     : undefined;
 
+  // Extract a short task label for CMDCenter visibility (first 80 chars of prompt)
+  const taskLabel = prompt.slice(0, 80).replace(/\n/g, ' ').trim();
+  void reportAgentActive(group.folder, taskLabel);
+
   try {
     const output = await runContainerAgent(
       group,
@@ -389,12 +394,15 @@ async function runAgent(
         { group: group.name, error: output.error },
         'Container agent error',
       );
+      void reportAgentIdle(group.folder);
       return 'error';
     }
 
+    void reportAgentIdle(group.folder);
     return 'success';
   } catch (err) {
     logger.error({ group: group.name, err }, 'Agent error');
+    void reportAgentIdle(group.folder);
     return 'error';
   }
 }
