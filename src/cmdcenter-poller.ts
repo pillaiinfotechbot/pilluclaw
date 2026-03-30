@@ -311,22 +311,29 @@ function buildTaskPrompt(
     `{"status":"in_progress|completed|failed","output":"<result>","assigned_agent":"<YourName>",\n` +
     ` "cost":<USD>,"tokens_in":<N>,"tokens_out":<N>,"model_used":"<model>","duration_ms":<ms>}\n`;
 
+  const executorName  = task.assigned_agent  ?? 'Agent';
+  const qaName        = task.qa_agent        ?? 'QA Agent';
+  const reviewerName  = task.reviewer_agent  ?? 'Sr Developer';
+
   if (role === 'executor') {
     return (
       base +
       dod +
       `---\n` +
-      `You are the **Executor**. Your job:\n` +
-      `1. GET /tasks/${task.id} — read the full task + steps\n` +
-      `2. Work through EACH step in order:\n` +
-      `   a. PUT /steps/<step_id> {"status":"in_progress","assigned_agent":"${task.assigned_agent ?? 'Agent'}"}\n` +
-      `   b. Do the work for the step\n` +
-      `   c. PUT /steps/<step_id> {"status":"completed","output":"<result>","cost":<USD>,...}\n` +
-      `   d. POST /tasks/${task.id}/communication {"agent":"${task.assigned_agent ?? 'Agent'}","msg_type":"note","content":"Step <N> done: <what/why/how>"}\n` +
-      `3. After ALL steps done, add a note summarising your work:\n` +
-      `POST /tasks/${task.id}/note {"agent":"${task.assigned_agent ?? 'Agent'}","stage":"executed","note":"<summary of what was done>"}\n` +
-      `4. Mark the task executed:\n` +
-      `PUT /tasks/${task.id} {"status":"executed","thinking_log":"<detailed result>"}` +
+      `You are **${executorName}** — the Executor for this task.\n\n` +
+      `## Your steps\n` +
+      `GET /tasks/${task.id} — read the full task. The \`steps\` array contains every step.\n` +
+      `Work ONLY through steps where \`assigned_agent == "${executorName}"\`.\n` +
+      `Do NOT touch steps assigned to other agents (QA, Reviewer, etc.).\n\n` +
+      `## For each of YOUR steps, in order:\n` +
+      `1. PUT /steps/<step_id>  → {"status":"in_progress","assigned_agent":"${executorName}"}\n` +
+      `2. Do the actual work described in the step\n` +
+      `3. POST /tasks/${task.id}/communication → {"agent":"${executorName}","msg_type":"thinking","step_id":<id>,"content":"<what you are doing and why>"}\n` +
+      `4. PUT /steps/<step_id>  → {"status":"completed","output":"<result>","cost":<USD>,"tokens_in":<N>,"tokens_out":<N>,"model_used":"<model>","duration_ms":<ms>}\n` +
+      `5. POST /tasks/${task.id}/communication → {"agent":"${executorName}","msg_type":"note","step_id":<id>,"content":"Done: <what was done, why this satisfies the step>"}\n\n` +
+      `## After ALL your steps are complete:\n` +
+      `POST /tasks/${task.id}/note → {"agent":"${executorName}","stage":"executed","note":"<summary: what was built, how it meets the Definition of Done>"}\n` +
+      `PUT /tasks/${task.id}      → {"status":"executed","thinking_log":"<detailed result>"}` +
       apiRef
     );
   }
@@ -336,18 +343,23 @@ function buildTaskPrompt(
       base +
       dod +
       `---\n` +
-      `You are the **QA Agent**. This task has been executed — validate every step against the Definition of Done.\n\n` +
-      `1. GET /tasks/${task.id} — read full task, steps, and their outputs\n` +
-      `2. GET /tasks/${task.id}/notes — read executor notes\n` +
-      `3. For EACH step, verify the output matches its acceptance criteria\n` +
-      `4. Log your findings per step:\n` +
-      `POST /tasks/${task.id}/communication {"agent":"QA Agent","msg_type":"note","content":"Step <N> QA: <pass/fail + reason>"}\n\n` +
-      `5. Add overall QA note:\n` +
-      `POST /tasks/${task.id}/note {"agent":"QA Agent","stage":"qa_check","note":"QA findings: <detailed>"}\n\n` +
-      `# If ALL steps PASS:\n` +
-      `PUT /tasks/${task.id} {"status":"review","thinking_log":"✅ QA PASS: <summary>"}\n\n` +
-      `# If ANY step FAILS:\n` +
-      `PUT /tasks/${task.id} {"status":"pending","rejected_reason":"❌ QA FAIL: <step N failed — exact fix needed>"}` +
+      `You are **${qaName}** — the QA Agent for this task.\n\n` +
+      `## Your job\n` +
+      `GET /tasks/${task.id} — read the full task. The \`steps\` array contains every step.\n` +
+      `You have TWO responsibilities:\n` +
+      `A. Verify the Executor's completed steps against the Definition of Done\n` +
+      `B. Execute steps where \`assigned_agent == "${qaName}"\` (your QA test steps)\n\n` +
+      `## For each QA test step assigned to you:\n` +
+      `1. PUT /steps/<step_id>  → {"status":"in_progress","assigned_agent":"${qaName}"}\n` +
+      `2. Run the test / validation described in the step\n` +
+      `3. POST /tasks/${task.id}/communication → {"agent":"${qaName}","msg_type":"note","step_id":<id>,"content":"Test: <what was tested> Result: PASS/FAIL — <reason>"}\n` +
+      `4. PUT /steps/<step_id>  → {"status":"completed|failed","output":"<test result details>"}\n\n` +
+      `## After all QA steps:\n` +
+      `POST /tasks/${task.id}/note → {"agent":"${qaName}","stage":"qa_check","note":"QA Summary: <what was tested, which passed, which failed>"}\n\n` +
+      `# If ALL tests PASS:\n` +
+      `PUT /tasks/${task.id} → {"status":"review","thinking_log":"✅ QA PASS: <summary>"}\n\n` +
+      `# If ANY test FAILS:\n` +
+      `PUT /tasks/${task.id} → {"status":"pending","rejected_reason":"❌ QA FAIL: Step <N> — <exact failure and what executor must fix>"}` +
       apiRef
     );
   }
@@ -357,18 +369,25 @@ function buildTaskPrompt(
     base +
     dod +
     `---\n` +
-    `You are the **Reviewer**. QA has passed this task — perform final audit.\n\n` +
-    `1. GET /tasks/${task.id} — read full task with all steps and their outputs\n` +
-    `2. GET /tasks/${task.id}/notes — read executor + QA notes\n` +
-    `3. GET /tasks/${task.id}/communications — read the full agent communication log\n` +
-    `4. Audit EVERY step output against the Definition of Done\n` +
-    `5. Log your review:\n` +
-    `POST /tasks/${task.id}/communication {"agent":"${task.reviewer_agent ?? 'Sr Developer'}","msg_type":"thinking","content":"<your review reasoning>"}\n` +
-    `POST /tasks/${task.id}/note {"agent":"${task.reviewer_agent ?? 'Sr Developer'}","stage":"review","note":"<review decision + rationale>"}\n\n` +
-    `# If APPROVED:\n` +
-    `PUT /tasks/${task.id} {"status":"completed","reviewed_at":"${new Date().toISOString()}"}\n\n` +
-    `# If REJECTED:\n` +
-    `PUT /tasks/${task.id} {"status":"rejected","rejected_reason":"🔴 REJECTED: <step N — specific fix required>"}` +
+    `You are **${reviewerName}** — the Reviewer for this task.\n\n` +
+    `## Your job\n` +
+    `GET /tasks/${task.id} — read the full task with all steps and their outputs.\n` +
+    `GET /tasks/${task.id}/notes — read executor and QA notes.\n` +
+    `GET /tasks/${task.id}/communications — read the full agent exchange log.\n\n` +
+    `You have TWO responsibilities:\n` +
+    `A. Audit that the Definition of Done is fully satisfied by the executor's work\n` +
+    `B. Execute steps where \`assigned_agent == "${reviewerName}"\` (your review steps)\n\n` +
+    `## For each review step assigned to you:\n` +
+    `1. PUT /steps/<step_id>  → {"status":"in_progress","assigned_agent":"${reviewerName}"}\n` +
+    `2. Perform the review check described in the step\n` +
+    `3. POST /tasks/${task.id}/communication → {"agent":"${reviewerName}","msg_type":"thinking","step_id":<id>,"content":"<review reasoning and findings>"}\n` +
+    `4. PUT /steps/<step_id>  → {"status":"completed|failed","output":"<review result>"}\n\n` +
+    `## Final decision:\n` +
+    `POST /tasks/${task.id}/note → {"agent":"${reviewerName}","stage":"review","note":"<full review: what was audited, DoD met? yes/no, any gaps>"}\n\n` +
+    `# If APPROVED — all review steps pass and DoD is met:\n` +
+    `PUT /tasks/${task.id} → {"status":"completed","reviewed_at":"${new Date().toISOString()}"}\n\n` +
+    `# If REJECTED — DoD not met or review step failed:\n` +
+    `PUT /tasks/${task.id} → {"status":"rejected","rejected_reason":"🔴 REJECTED by ${reviewerName}: <step N — exact issue and what must be fixed>"}` +
     apiRef
   );
 }
