@@ -30,6 +30,7 @@ import { resolveGroupFolderPath } from './group-folder.js';
 import { RegisteredGroup } from './types.js';
 import { CONTAINER_PREFIX } from './config.js';
 import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
+import { scheduleZeroTokenCheck } from './cmdcenter-poller-zero-token-patch.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -98,7 +99,9 @@ const FOLDER_TO_TRIGGER: Record<string, string> = {
 // ── Container concurrency limits ──────────────────────────────────────────────
 
 /** Hard cap on total simultaneous nanoclaw containers (prevents Docker OOM). */
-const MAX_CONCURRENT_CONTAINERS = Number(process.env.MAX_CONCURRENT_CONTAINERS ?? 8);
+const MAX_CONCURRENT_CONTAINERS = Number(
+  process.env.MAX_CONCURRENT_CONTAINERS ?? 8,
+);
 
 /** Max simultaneous containers per agent (prevents one agent monopolising capacity). */
 const MAX_PER_AGENT = Number(process.env.MAX_CONTAINERS_PER_AGENT ?? 2);
@@ -107,7 +110,10 @@ const MAX_PER_AGENT = Number(process.env.MAX_CONTAINERS_PER_AGENT ?? 2);
  * Count currently running nanoclaw containers (by prefix in docker ps output).
  * Returns { total, perAgent } — perAgent keyed by agent folder name.
  */
-function countRunningContainers(): { total: number; perAgent: Map<string, number> } {
+function countRunningContainers(): {
+  total: number;
+  perAgent: Map<string, number>;
+} {
   try {
     const output = execSync(
       `${CONTAINER_RUNTIME_BIN} ps --filter "name=${CONTAINER_PREFIX}-" --format "{{.Names}}"`,
@@ -232,7 +238,8 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
     const sortedTasks = [...tasks].sort((a, b) => scoreTask(b) - scoreTask(a));
 
     // Snapshot running containers once per poll cycle (not per task)
-    const { total: runningTotal, perAgent: runningPerAgent } = countRunningContainers();
+    const { total: runningTotal, perAgent: runningPerAgent } =
+      countRunningContainers();
     if (runningTotal >= MAX_CONCURRENT_CONTAINERS) {
       logger.warn(
         { runningTotal, limit: MAX_CONCURRENT_CONTAINERS },
@@ -292,7 +299,8 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
         );
         break;
       }
-      const agentNow = (runningPerAgent.get(folder) ?? 0) + (addedPerAgent.get(folder) ?? 0);
+      const agentNow =
+        (runningPerAgent.get(folder) ?? 0) + (addedPerAgent.get(folder) ?? 0);
       if (agentNow >= MAX_PER_AGENT) {
         logger.info(
           { folder, agentNow, limit: MAX_PER_AGENT, taskId: task.id },
@@ -355,6 +363,7 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       });
 
       queue.enqueueMessageCheck(taskJid);
+      scheduleZeroTokenCheck(task.id); // 30-min stall detection (Task #898)
       injectedTaskIds.set(task.id, Date.now());
       saveInjectedCache(); // persist immediately so restarts don't re-inject (bug #157)
       injected++;
