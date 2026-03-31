@@ -54,6 +54,10 @@ const AGENT_TO_WEBHOOK: Record<string, string> = {
   'System Agent': 'virtual:sysagent',
 };
 
+// Human assignees — tasks assigned to these names are skipped silently.
+// Humans don't have webhooks; they act via CMDCenter UI at their own pace.
+const HUMAN_ASSIGNEES = new Set(['Manoj Pillai', 'Manoj', 'Human']);
+
 // ── Heartbeat state ───────────────────────────────────────────────────────────
 
 interface AgentStatus {
@@ -159,10 +163,18 @@ async function runHeartbeat(): Promise<void> {
         const webhookUrl = AGENT_TO_WEBHOOK[agentName];
 
         if (!webhookUrl) {
-          logger.warn(
-            { taskId: task.id, agentName },
-            'CMDCenter heartbeat: no webhook configured for agent',
-          );
+          if (HUMAN_ASSIGNEES.has(agentName)) {
+            // Human-assigned task — skip silently, human will act via CMDCenter UI
+            logger.debug(
+              { taskId: task.id, agentName },
+              'CMDCenter heartbeat: human-assigned task, skipping dispatch',
+            );
+          } else {
+            logger.warn(
+              { taskId: task.id, agentName },
+              'CMDCenter heartbeat: no webhook configured for agent',
+            );
+          }
           metrics.pending_tasks_failed++;
           continue;
         }
