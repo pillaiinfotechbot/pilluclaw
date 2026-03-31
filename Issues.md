@@ -112,8 +112,30 @@ automatically where safe. It sends a Telegram summary when done.
 
 ---
 
+### [FIXED] ISSUE-006 — Bug #157: Dispatcher re-injects tasks after every restart
+- **Detected:** 2026-03-31 10:30 IST (reported by PMBot escalation)
+- **Fixed:** 2026-03-31 10:33 IST
+- **Root cause:** `injectedTaskIds` deduplication map in `cmdcenter-poller.ts` was
+  in-memory only. On every pilluclaw restart the map was cleared, so ALL in_progress/
+  executed/review tasks were immediately re-injected into agent queues — spawning
+  duplicate containers for tasks already being (or previously) processed.
+- **Fix applied:**
+  - Added disk persistence: `injectedTaskIds` loaded/saved to `~/.nanoclaw-injected-tasks.json`
+  - `saveInjectedCache()` called immediately after each injection
+  - `loadInjectedCache()` called at startup — stale entries (>30min) discarded
+  - Added `'completed'` and `'rejected'` to `TERMINAL_STATUSES` — finished tasks
+    can never be re-injected regardless of TTL or restart
+- **Recurrence check:**
+  ```bash
+  cat ~/.nanoclaw-injected-tasks.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d), 'tasks cached')"
+  # Should show cached tasks; restarts should not change count until TTL expires
+  ```
+
+---
+
 ## Resolved Issues Archive
 
 | ID | Title | Fixed |
 |----|-------|-------|
-| ISSUE-001 | VirtualChannel missing | 2026-03-31 |
+| ISSUE-001 | VirtualChannel missing — agents never processed tasks | 2026-03-31 |
+| ISSUE-006 | Bug #157 — Dispatcher re-injects tasks after every restart | 2026-03-31 |

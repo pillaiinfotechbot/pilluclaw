@@ -15,6 +15,8 @@
  */
 
 import { randomUUID } from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
 import { logger } from './logger.js';
 import {
@@ -85,12 +87,58 @@ const FOLDER_TO_TRIGGER: Record<string, string> = {
 };
 
 // Track which task IDs we've already injected, with injection timestamp.
-// Entries expire after INJECT_TTL_MS so stale/failed tasks get re-injected.
+// Persisted to disk so restarts don't cause duplicate container spawns (bug #157).
 const INJECT_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const INJECT_CACHE_PATH = path.join(
+  process.env.HOME ?? '/tmp',
+  '.nanoclaw-injected-tasks.json',
+);
+
+// Load persisted injection map from disk (survives restarts)
 const injectedTaskIds = new Map<number, number>(); // taskId → injectedAt (ms)
 
+function loadInjectedCache(): void {
+  try {
+    if (!fs.existsSync(INJECT_CACHE_PATH)) return;
+    const raw = fs.readFileSync(INJECT_CACHE_PATH, 'utf8');
+    const obj = JSON.parse(raw) as Record<string, number>;
+    const now = Date.now();
+    for (const [id, ts] of Object.entries(obj)) {
+      if (now - ts < INJECT_TTL_MS) {
+        injectedTaskIds.set(Number(id), ts);
+      }
+    }
+    logger.info(
+      { loaded: injectedTaskIds.size },
+      'CMDCenter poller: loaded injection cache from disk',
+    );
+  } catch {
+    // ignore — fresh start is fine
+  }
+}
+
+function saveInjectedCache(): void {
+  try {
+    const obj: Record<string, number> = {};
+    for (const [id, ts] of injectedTaskIds.entries()) {
+      obj[id] = ts;
+    }
+    fs.writeFileSync(INJECT_CACHE_PATH, JSON.stringify(obj), 'utf8');
+  } catch {
+    // non-fatal
+  }
+}
+
+// Initialise from disk immediately
+loadInjectedCache();
+
 // Terminal statuses — never re-inject regardless of TTL
-const TERMINAL_STATUSES = new Set(['passed', 'in_testing']);
+const TERMINAL_STATUSES = new Set([
+  'passed',
+  'in_testing',
+  'completed',
+  'rejected',
+]);
 
 // Statuses that only LiveTest should receive
 const LIVETEST_ONLY_STATUSES = new Set(['completed']);
@@ -180,6 +228,7 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
 
       queue.enqueueMessageCheck(jid);
       injectedTaskIds.set(task.id, Date.now());
+      saveInjectedCache(); // persist immediately so restarts don't re-inject (bug #157)
       injected++;
 
       logger.info(
