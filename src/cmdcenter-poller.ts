@@ -66,6 +66,9 @@ const AGENT_TO_FOLDER: Record<string, string> = {
   SYSAgent: 'telegram_sysagent',
   'SYS Agent': 'telegram_sysagent',
   'System Agent': 'telegram_sysagent',
+  'CMDCenter API Agent': 'telegram_apiagent',
+  APIAgent: 'telegram_apiagent',
+  'API Agent': 'telegram_apiagent',
 };
 
 // Trigger prefix per folder (must match registered_groups trigger_pattern)
@@ -86,6 +89,7 @@ const FOLDER_TO_TRIGGER: Record<string, string> = {
   telegram_srdev: '/srdev',
   telegram_livetest: '/livetest',
   telegram_sysagent: '/sysagent',
+  telegram_apiagent: '/apiagent',
 };
 
 // Track which task IDs we've already injected, with injection timestamp.
@@ -244,12 +248,15 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
           fs.copyFileSync(baseMd, taskMd);
         }
         // Register in DB and in-memory registeredGroups
+        // requiresTrigger must be false — the poller injects the message directly
+        // (task prompt doesn't start with a trigger word) so the trigger check
+        // in processGroupMessages would silently skip it if requiresTrigger: true.
         const taskGroup: RegisteredGroup = {
           name: `${agentName} Task #${task.id}`,
           folder: taskFolder,
           trigger: FOLDER_TO_TRIGGER[folder] ?? '/cmd',
           added_at: new Date().toISOString(),
-          requiresTrigger: true,
+          requiresTrigger: false,
         };
         _registerGroupFn(taskJid, taskGroup);
       }
@@ -278,7 +285,15 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       injected++;
 
       logger.info(
-        { taskId: task.id, agentName, role, folder, baseJid, taskJid, taskFolder },
+        {
+          taskId: task.id,
+          agentName,
+          role,
+          folder,
+          baseJid,
+          taskJid,
+          taskFolder,
+        },
         'CMDCenter poller: injected task (parallel container)',
       );
     }
@@ -390,7 +405,8 @@ function buildTaskPrompt(
     identityBlock += `**Name:** ${identity.name}\n`;
     if (identity.role) identityBlock += `**Role:** ${identity.role}\n`;
     if (identity.calling) identityBlock += `**Calling:** ${identity.calling}\n`;
-    if (identity.backstory) identityBlock += `**Backstory:** ${identity.backstory}\n`;
+    if (identity.backstory)
+      identityBlock += `**Backstory:** ${identity.backstory}\n`;
     identityBlock += '\n';
     if (identity.memory.length > 0) {
       identityBlock += `## Your Memory\n`;
@@ -594,8 +610,11 @@ interface AgentIdentity {
 // redundant API calls when multiple tasks share the same agent).
 const agentIdentityCache = new Map<string, AgentIdentity>();
 
-async function fetchAgentIdentity(agentName: string): Promise<AgentIdentity | null> {
-  if (agentIdentityCache.has(agentName)) return agentIdentityCache.get(agentName)!;
+async function fetchAgentIdentity(
+  agentName: string,
+): Promise<AgentIdentity | null> {
+  if (agentIdentityCache.has(agentName))
+    return agentIdentityCache.get(agentName)!;
 
   try {
     // Fetch agent record by name
@@ -635,7 +654,11 @@ async function fetchAgentIdentity(agentName: string): Promise<AgentIdentity | nu
         if (memRes.ok) {
           const memData = (await memRes.json()) as {
             success: boolean;
-            data: Array<{ memory_key?: string; memory_value?: string; content?: string }>;
+            data: Array<{
+              memory_key?: string;
+              memory_value?: string;
+              content?: string;
+            }>;
           };
           if (memData.success && Array.isArray(memData.data)) {
             for (const item of memData.data) {

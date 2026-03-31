@@ -52,6 +52,9 @@ const AGENT_TO_WEBHOOK: Record<string, string> = {
   SYSAgent: 'virtual:sysagent',
   'SYS Agent': 'virtual:sysagent',
   'System Agent': 'virtual:sysagent',
+  'CMDCenter API Agent': 'virtual:apiagent',
+  APIAgent: 'virtual:apiagent',
+  'API Agent': 'virtual:apiagent',
 };
 
 // Human assignees — tasks assigned to these names are skipped silently.
@@ -169,13 +172,14 @@ async function runHeartbeat(): Promise<void> {
               { taskId: task.id, agentName },
               'CMDCenter heartbeat: human-assigned task, skipping dispatch',
             );
+            // Human skips do NOT count as failures — they are intentional
           } else {
             logger.warn(
               { taskId: task.id, agentName },
               'CMDCenter heartbeat: no webhook configured for agent',
             );
+            metrics.pending_tasks_failed++;
           }
-          metrics.pending_tasks_failed++;
           continue;
         }
 
