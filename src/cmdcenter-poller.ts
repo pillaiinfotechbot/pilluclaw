@@ -15,6 +15,7 @@
  */
 
 import { randomUUID } from 'crypto';
+import { execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -27,6 +28,8 @@ import {
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
 import { RegisteredGroup } from './types.js';
+import { CONTAINER_PREFIX } from './config.js';
+import { CONTAINER_RUNTIME_BIN } from './container-runtime.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -91,6 +94,46 @@ const FOLDER_TO_TRIGGER: Record<string, string> = {
   telegram_sysagent: '/sysagent',
   telegram_apiagent: '/apiagent',
 };
+
+// ── Container concurrency limits ──────────────────────────────────────────────
+
+/** Hard cap on total simultaneous nanoclaw containers (prevents Docker OOM). */
+const MAX_CONCURRENT_CONTAINERS = Number(process.env.MAX_CONCURRENT_CONTAINERS ?? 8);
+
+/** Max simultaneous containers per agent (prevents one agent monopolising capacity). */
+const MAX_PER_AGENT = Number(process.env.MAX_CONTAINERS_PER_AGENT ?? 2);
+
+/**
+ * Count currently running nanoclaw containers (by prefix in docker ps output).
+ * Returns { total, perAgent } — perAgent keyed by agent folder name.
+ */
+function countRunningContainers(): { total: number; perAgent: Map<string, number> } {
+  try {
+    const output = execSync(
+      `${CONTAINER_RUNTIME_BIN} ps --filter "name=${CONTAINER_PREFIX}-" --format "{{.Names}}"`,
+      { stdio: ['pipe', 'pipe', 'pipe'], encoding: 'utf-8', timeout: 5000 },
+    );
+    const names = output.trim().split('\n').filter(Boolean);
+    const perAgent = new Map<string, number>();
+    for (const name of names) {
+      // Container name format: nanoclaw-telegram_cto_t821-<timestamp>
+      // Extract folder slug between first dash and last dash-timestamp
+      const match = name.match(/^[^-]+-(.+)-\d+$/);
+      if (match) {
+        const folder = match[1].replace(/-/g, '_');
+        // Normalise task-specific folder (telegram_cto_t821 → telegram_cto)
+        const baseFolder = folder.replace(/_t\d+$/, '');
+        perAgent.set(baseFolder, (perAgent.get(baseFolder) ?? 0) + 1);
+      }
+    }
+    return { total: names.length, perAgent };
+  } catch {
+    // If docker ps fails, be conservative — allow dispatch
+    return { total: 0, perAgent: new Map() };
+  }
+}
+
+// ── Injection cache ───────────────────────────────────────────────────────────
 
 // Track which task IDs we've already injected, with injection timestamp.
 // Persisted to disk so restarts don't cause duplicate container spawns (bug #157).
@@ -188,7 +231,21 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
     // Sort tasks by weighted priority score — highest urgency first
     const sortedTasks = [...tasks].sort((a, b) => scoreTask(b) - scoreTask(a));
 
+    // Snapshot running containers once per poll cycle (not per task)
+    const { total: runningTotal, perAgent: runningPerAgent } = countRunningContainers();
+    if (runningTotal >= MAX_CONCURRENT_CONTAINERS) {
+      logger.warn(
+        { runningTotal, limit: MAX_CONCURRENT_CONTAINERS },
+        'CMDCenter poller: container limit reached — skipping dispatch this cycle',
+      );
+      return;
+    }
+
     let injected = 0;
+    // Track containers added this cycle so we don't exceed limit mid-loop
+    let addedThisCycle = 0;
+    const addedPerAgent = new Map<string, number>();
+
     for (const task of sortedTasks) {
       // ── Determine which agent handles this task at its current stage ──
       const { agentName, role } = resolveAgentForStage(task);
@@ -222,6 +279,24 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
         logger.warn(
           { taskId: task.id, retryCount, maxRetries },
           'Task max retries exceeded',
+        );
+        continue;
+      }
+
+      // ── Concurrency guard: stop if global or per-agent limit reached ────────
+      const globalNow = runningTotal + addedThisCycle;
+      if (globalNow >= MAX_CONCURRENT_CONTAINERS) {
+        logger.warn(
+          { globalNow, limit: MAX_CONCURRENT_CONTAINERS },
+          'CMDCenter poller: global container limit reached mid-loop — stopping dispatch',
+        );
+        break;
+      }
+      const agentNow = (runningPerAgent.get(folder) ?? 0) + (addedPerAgent.get(folder) ?? 0);
+      if (agentNow >= MAX_PER_AGENT) {
+        logger.info(
+          { folder, agentNow, limit: MAX_PER_AGENT, taskId: task.id },
+          'CMDCenter poller: per-agent container limit reached — skipping task',
         );
         continue;
       }
@@ -283,6 +358,8 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       injectedTaskIds.set(task.id, Date.now());
       saveInjectedCache(); // persist immediately so restarts don't re-inject (bug #157)
       injected++;
+      addedThisCycle++;
+      addedPerAgent.set(folder, (addedPerAgent.get(folder) ?? 0) + 1);
 
       logger.info(
         {
