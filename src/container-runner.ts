@@ -207,6 +207,21 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Sysbridge directory — allows agents to submit host-level commands
+  // (restart services, local MySQL, etc.) via the sysbridge executor
+  const sysbridgeDir = path.join(
+    process.env.HOME ?? '/tmp',
+    '.nanoclaw',
+    'sysbridge',
+  );
+  if (fs.existsSync(sysbridgeDir)) {
+    mounts.push({
+      hostPath: sysbridgeDir,
+      containerPath: '/workspace/extra/sysbridge',
+      readonly: false,
+    });
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
