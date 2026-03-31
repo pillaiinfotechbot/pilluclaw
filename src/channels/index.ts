@@ -10,5 +10,8 @@
 // telegram
 import './telegram.js';
 
+// virtual (CMDCenter task routing — no real chat platform needed)
+import './virtual.js';
+
 // whatsapp
 import './whatsapp.js';
