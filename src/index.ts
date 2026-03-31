@@ -154,10 +154,13 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
  * task-specific parallel containers). Skips the DB write if the group is
  * already registered in memory (idempotent).
  */
-export function registerDynamicGroup(jid: string, group: RegisteredGroup): void {
-  // Idempotent: skip if already registered in memory
-  const existing = registeredGroups[jid];
-  if (existing && existing.some((g) => g.folder === group.folder)) return;
+export function registerDynamicGroup(
+  jid: string,
+  group: RegisteredGroup,
+): void {
+  // Always call registerGroup — it is idempotent (replaces existing entry).
+  // Do NOT skip if already in memory: the caller may pass updated properties
+  // (e.g. requiresTrigger: false) that differ from the DB-loaded value.
   registerGroup(jid, group);
 }
 
