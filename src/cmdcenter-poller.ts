@@ -25,6 +25,8 @@ import {
   getAllRegisteredGroups,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
+import { resolveGroupFolderPath } from './group-folder.js';
+import { RegisteredGroup } from './types.js';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -145,7 +147,15 @@ const LIVETEST_ONLY_STATUSES = new Set(['completed']);
 
 // ── Main poller ───────────────────────────────────────────────────────────────
 
-export function startCmdCenterPoller(queue: GroupQueue): void {
+// Callback type for dynamic group registration (injected from index.ts to avoid circular dep)
+type RegisterGroupFn = (jid: string, group: RegisteredGroup) => void;
+let _registerGroupFn: RegisterGroupFn | null = null;
+
+export function startCmdCenterPoller(
+  queue: GroupQueue,
+  registerGroupFn?: RegisterGroupFn,
+): void {
+  if (registerGroupFn) _registerGroupFn = registerGroupFn;
   logger.info(
     { apiUrl: CMDCENTER_API_URL, intervalMs: POLL_INTERVAL_MS },
     'CMDCenter task poller started',
@@ -155,13 +165,15 @@ export function startCmdCenterPoller(queue: GroupQueue): void {
 }
 
 async function pollOnce(queue: GroupQueue): Promise<void> {
+  // Clear per-cycle identity cache so stale data doesn't persist across polls
+  agentIdentityCache.clear();
   try {
     const tasks = await fetchPendingNanoclawTasks();
     if (tasks.length === 0) return;
 
     const registeredGroups = getAllRegisteredGroups();
 
-    // Build folder → JID reverse lookup
+    // Build folder → base JID reverse lookup
     const folderToJid = new Map<string, string>();
     for (const [jid, groups] of Object.entries(registeredGroups)) {
       for (const group of groups) {
@@ -181,8 +193,8 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       const folder = AGENT_TO_FOLDER[agentName];
       if (!folder) continue;
 
-      const jid = folderToJid.get(folder);
-      if (!jid) {
+      const baseJid = folderToJid.get(folder);
+      if (!baseJid) {
         logger.warn(
           { agentName, folder },
           'CMDCenter poller: no JID for folder',
@@ -210,14 +222,48 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
         continue;
       }
 
+      // ── Task-specific JID + folder for parallel container isolation ────────
+      // Each task gets its own unique JID so tasks run in parallel containers
+      // rather than queuing serially behind a shared virtual:cto JID.
+      // JID format:  virtual:cto:task-821  (VirtualChannel owns all virtual:* JIDs)
+      // Folder format: telegram_cto_t821   (must match ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$)
+      const taskJid = `${baseJid}:task-${task.id}`;
+      const taskFolder = `${folder}_t${task.id}`;
+
+      // Dynamically register the task-specific group so processGroupMessages
+      // can find it in registeredGroups[taskJid]. Copy CLAUDE.md from base folder.
+      if (_registerGroupFn) {
+        const baseGroupDir = resolveGroupFolderPath(folder);
+        const taskGroupDir = resolveGroupFolderPath(taskFolder);
+        // Ensure task folder exists with logs subdir
+        fs.mkdirSync(path.join(taskGroupDir, 'logs'), { recursive: true });
+        // Copy CLAUDE.md from base folder if not already present
+        const baseMd = path.join(baseGroupDir, 'CLAUDE.md');
+        const taskMd = path.join(taskGroupDir, 'CLAUDE.md');
+        if (!fs.existsSync(taskMd) && fs.existsSync(baseMd)) {
+          fs.copyFileSync(baseMd, taskMd);
+        }
+        // Register in DB and in-memory registeredGroups
+        const taskGroup: RegisteredGroup = {
+          name: `${agentName} Task #${task.id}`,
+          folder: taskFolder,
+          trigger: FOLDER_TO_TRIGGER[folder] ?? '/cmd',
+          added_at: new Date().toISOString(),
+          requiresTrigger: true,
+        };
+        _registerGroupFn(taskJid, taskGroup);
+      }
+
       const trigger = FOLDER_TO_TRIGGER[folder] ?? '/cmd';
       const priority = (task.priority ?? 'medium').toUpperCase();
-      const content = buildTaskPrompt(trigger, priority, task, role);
+      // Fetch agent identity from CMDCenter for prompt enrichment (best-effort)
+      const identity = await fetchAgentIdentity(agentName);
+      const content = buildTaskPrompt(trigger, priority, task, role, identity);
 
-      storeChatMetadata(jid, new Date().toISOString());
+      storeChatMetadata(taskJid, new Date().toISOString());
       storeMessageDirect({
         id: `cmdcenter-task-${task.id}-${randomUUID()}`,
-        chat_jid: jid,
+        chat_jid: taskJid,
         sender: 'cmdcenter-poller',
         sender_name: 'CMDCenter',
         content,
@@ -226,14 +272,14 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
         is_bot_message: false,
       });
 
-      queue.enqueueMessageCheck(jid);
+      queue.enqueueMessageCheck(taskJid);
       injectedTaskIds.set(task.id, Date.now());
       saveInjectedCache(); // persist immediately so restarts don't re-inject (bug #157)
       injected++;
 
       logger.info(
-        { taskId: task.id, agentName, role, folder, jid },
-        'CMDCenter poller: injected task',
+        { taskId: task.id, agentName, role, folder, baseJid, taskJid, taskFolder },
+        'CMDCenter poller: injected task (parallel container)',
       );
     }
 
@@ -334,8 +380,38 @@ function buildTaskPrompt(
   priority: string,
   task: CmdCenterTask,
   role: 'executor' | 'qa' | 'reviewer',
+  identity?: AgentIdentity | null,
 ): string {
+  // ── Agent identity preamble (fetched from CMDCenter DB) ───────────────────
+  // Provides agent with full context of who they are — no CLAUDE.md needed.
+  let identityBlock = '';
+  if (identity) {
+    identityBlock += `## Your Identity\n`;
+    identityBlock += `**Name:** ${identity.name}\n`;
+    if (identity.role) identityBlock += `**Role:** ${identity.role}\n`;
+    if (identity.calling) identityBlock += `**Calling:** ${identity.calling}\n`;
+    if (identity.backstory) identityBlock += `**Backstory:** ${identity.backstory}\n`;
+    identityBlock += '\n';
+    if (identity.memory.length > 0) {
+      identityBlock += `## Your Memory\n`;
+      for (const item of identity.memory) {
+        identityBlock += `- ${item}\n`;
+      }
+      identityBlock += '\n';
+    }
+  }
+
+  // ── Model usage note ──────────────────────────────────────────────────────
+  // Containers use CLAUDE_CODE_OAUTH_TOKEN which maps to claude-sonnet-4-6.
+  // Do NOT call OpenRouter or external AI APIs — use default Claude model.
+  const modelNote =
+    `> **Model:** Use your default Claude model (claude-sonnet-4-6 via OAuth). ` +
+    `Do NOT use OpenRouter or external AI APIs unless the task explicitly requires ` +
+    `a non-Claude capability (image generation, video, etc.).\n\n`;
+
   const base =
+    identityBlock +
+    modelNote +
     `${trigger} 📋 Task #${task.id} [${priority}]: ${task.title}\n\n` +
     (task.description ? `${task.description}\n\n` : '');
 
@@ -502,4 +578,88 @@ async function fetchPendingNanoclawTasks(): Promise<CmdCenterTask[]> {
     const { agentName } = resolveAgentForStage(t);
     return agentName && agentName in AGENT_TO_FOLDER;
   });
+}
+
+// ── Agent Identity (fetched from CMDCenter DB at injection time) ───────────────
+
+interface AgentIdentity {
+  name: string;
+  role: string | null;
+  calling: string | null;
+  backstory: string | null;
+  memory: string[];
+}
+
+// Cache agent identities for the duration of a single poll cycle (avoids
+// redundant API calls when multiple tasks share the same agent).
+const agentIdentityCache = new Map<string, AgentIdentity>();
+
+async function fetchAgentIdentity(agentName: string): Promise<AgentIdentity | null> {
+  if (agentIdentityCache.has(agentName)) return agentIdentityCache.get(agentName)!;
+
+  try {
+    // Fetch agent record by name
+    const agentRes = await fetch(
+      `${CMDCENTER_API_URL}/agents/${encodeURIComponent(agentName)}`,
+      {
+        headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
+        signal: AbortSignal.timeout(8_000),
+      },
+    );
+    if (!agentRes.ok) return null;
+    const agentData = (await agentRes.json()) as {
+      success: boolean;
+      data: {
+        id?: number;
+        name?: string;
+        role?: string | null;
+        calling?: string | null;
+        backstory?: string | null;
+      };
+    };
+    if (!agentData.success || !agentData.data) return null;
+
+    const agent = agentData.data;
+    const memory: string[] = [];
+
+    // Fetch agent memory items if agent has an id
+    if (agent.id) {
+      try {
+        const memRes = await fetch(
+          `${CMDCENTER_API_URL}/agent-memory?agent_id=${agent.id}&limit=20`,
+          {
+            headers: { 'X-Bot-Key': CMDCENTER_BOT_KEY },
+            signal: AbortSignal.timeout(8_000),
+          },
+        );
+        if (memRes.ok) {
+          const memData = (await memRes.json()) as {
+            success: boolean;
+            data: Array<{ memory_key?: string; memory_value?: string; content?: string }>;
+          };
+          if (memData.success && Array.isArray(memData.data)) {
+            for (const item of memData.data) {
+              const key = item.memory_key ?? '';
+              const val = item.memory_value ?? item.content ?? '';
+              if (val) memory.push(key ? `**${key}:** ${val}` : val);
+            }
+          }
+        }
+      } catch {
+        // Memory fetch failing is non-fatal
+      }
+    }
+
+    const identity: AgentIdentity = {
+      name: agent.name ?? agentName,
+      role: agent.role ?? null,
+      calling: agent.calling ?? null,
+      backstory: agent.backstory ?? null,
+      memory,
+    };
+    agentIdentityCache.set(agentName, identity);
+    return identity;
+  } catch {
+    return null;
+  }
 }

@@ -150,6 +150,18 @@ function registerGroup(jid: string, group: RegisteredGroup): void {
 }
 
 /**
+ * Dynamically register a group at runtime (used by CMDCenter poller for
+ * task-specific parallel containers). Skips the DB write if the group is
+ * already registered in memory (idempotent).
+ */
+export function registerDynamicGroup(jid: string, group: RegisteredGroup): void {
+  // Idempotent: skip if already registered in memory
+  const existing = registeredGroups[jid];
+  if (existing && existing.some((g) => g.folder === group.folder)) return;
+  registerGroup(jid, group);
+}
+
+/**
  * Get available groups list for the agent.
  * Returns groups ordered by most recent activity.
  */
@@ -759,7 +771,7 @@ async function main(): Promise<void> {
   // Bots cannot receive their own Telegram messages via getUpdates, so
   // the PHP heartbeat's Bot API delivery is invisible to nanoclaw.
   // This poller injects those tasks directly into the message queue.
-  startCmdCenterPoller(queue);
+  startCmdCenterPoller(queue, registerDynamicGroup);
 
   // Run CMDCenter agent heartbeat every 5 minutes.
   // Checks agent health, dispatches pending tasks, monitors webhooks.

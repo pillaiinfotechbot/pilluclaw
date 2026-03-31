@@ -31,7 +31,10 @@ class VirtualChannel implements Channel {
   async sendMessage(jid: string, text: string): Promise<void> {
     // Agent output for virtual JIDs flows back through the CMDCenter API
     // (POST /tasks/{id}/communications). Nothing to send to a chat platform.
-    logger.debug({ jid, chars: text.length }, 'VirtualChannel: sendMessage (no-op)');
+    logger.debug(
+      { jid, chars: text.length },
+      'VirtualChannel: sendMessage (no-op)',
+    );
   }
 
   async disconnect(): Promise<void> {
