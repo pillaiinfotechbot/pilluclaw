@@ -222,6 +222,16 @@ function buildVolumeMounts(
     });
   }
 
+  // Host Development directory — gives agents access to all project repos
+  const devDir = path.join(process.env.HOME ?? '/tmp', 'Development');
+  if (fs.existsSync(devDir)) {
+    mounts.push({
+      hostPath: devDir,
+      containerPath: '/workspace/extra/Development',
+      readonly: false,
+    });
+  }
+
   // Additional mounts validated against external allowlist (tamper-proof from containers)
   if (group.containerConfig?.additionalMounts) {
     const validatedMounts = validateAdditionalMounts(
@@ -245,8 +255,9 @@ function buildContainerArgs(
   // Pass host timezone so container's local time matches the user's
   args.push('-e', `TZ=${TIMEZONE}`);
 
-  // Set the Claude model for this agent. Falls back to sonnet if not specified.
-  args.push('-e', `ANTHROPIC_MODEL=${model || 'claude-sonnet-4-6'}`);
+  // Set the Claude model for this agent. Falls back to Haiku 4.5 if not specified.
+  // Sonnet 4.6 blocked until 2 Apr 9AM IST (usage limit). Use Haiku default, Opus for complex tasks.
+  args.push('-e', `ANTHROPIC_MODEL=${model || 'claude-haiku-4-5-20251001'}`);
 
   // Route API traffic through the credential proxy (containers never see real secrets)
   args.push(
