@@ -22,6 +22,9 @@ const CMDCENTER_API_URL =
 const CMDCENTER_BOT_KEY = process.env.CMDCENTER_BOT_KEY ?? 'nc_bot_pillai2026';
 const HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
 const AGENT_STUCK_THRESHOLD_MS = 10 * 60 * 1000; // 10 minutes without heartbeat
+// Grace period: don't auto-dispatch tasks that were updated in the last 5 minutes
+// This prevents revert loops when humans or agents manually change task status
+const STATUS_UPDATE_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
 
 // Agent name → virtual JID mapping (from CLAUDE.md)
 const AGENT_TO_WEBHOOK: Record<string, string> = {
@@ -162,6 +165,16 @@ async function runHeartbeat(): Promise<void> {
     // 5. Dispatch pending tasks to agents
     for (const task of pendingTasks) {
       try {
+        // FIX for status reversion bug: Skip tasks updated within grace period
+        // This prevents auto-reverting tasks that were manually changed by humans/agents
+        if (isTaskInGracePeriod(task)) {
+          logger.info(
+            { taskId: task.id, updated_at: task.updated_at },
+            'CMDCenter heartbeat: skipping dispatch (task updated within grace period)',
+          );
+          continue;
+        }
+
         const agentName = task.assigned_agent || 'unknown';
         const webhookUrl = AGENT_TO_WEBHOOK[agentName];
 
@@ -230,6 +243,8 @@ interface CmdCenterTask {
   status: string;
   retry_count: number | null;
   max_retries: number | null;
+  updated_at: string | null;
+  started_at: string | null;
 }
 
 async function fetchAllAgents(): Promise<CmdCenterAgent[]> {
@@ -300,6 +315,25 @@ async function updateTaskStatus(
   if (!res.ok) {
     throw new Error(`CMDCenter API error ${res.status}: ${await res.text()}`);
   }
+}
+
+// ── Grace Period Check ────────────────────────────────────────────────────────
+
+/**
+ * Check if a task was updated within the grace period.
+ * Tasks updated recently (within grace period) should not be auto-dispatched.
+ * This prevents the status reversion loop when humans or agents manually change task status.
+ *
+ * Bug fix for: https://github.com/pillaiinfotechbot/pilluclaw/issues/bug-status-reversion
+ */
+function isTaskInGracePeriod(task: CmdCenterTask): boolean {
+  if (!task.updated_at) return false;
+
+  const updatedTime = new Date(task.updated_at).getTime();
+  const now = Date.now();
+  const timeSinceUpdate = now - updatedTime;
+
+  return timeSinceUpdate < STATUS_UPDATE_GRACE_PERIOD_MS;
 }
 
 // ── Health Analysis ───────────────────────────────────────────────────────────
