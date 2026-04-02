@@ -10,7 +10,9 @@
  *   scheduleZeroTokenCheck(task.id);
  */
 
-const CMDCENTER_BASE = process.env.CMDCENTER_API_URL || 'https://cmdcenterapi.pillaiinfotech.com/api/v1';
+const CMDCENTER_BASE =
+  process.env.CMDCENTER_API_URL ||
+  'https://cmdcenterapi.pillaiinfotech.com/api/v1';
 const BOT_KEY = process.env.CMDCENTER_BOT_KEY || 'nc_bot_pillai2026';
 const ZERO_TOKEN_CHECK_DELAY_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -45,7 +47,7 @@ async function checkZeroTokenDispatch(taskId: number): Promise<void> {
     const res = await fetch(`${CMDCENTER_BASE}/tasks/${taskId}`, {
       headers: { 'X-Bot-Key': BOT_KEY },
     });
-    const json = await res.json() as { data: TaskResponse };
+    const json = (await res.json()) as { data: TaskResponse };
     const task: TaskResponse = json.data;
 
     // Not in progress anymore — task completed normally
@@ -100,5 +102,7 @@ async function fireZeroTokenAlert(task: TaskResponse): Promise<void> {
     }),
   });
 
-  console.error(`[ZeroTokenCheck] CRITICAL: Mode B stall on Task #${task.id} — CTO alerted`);
+  console.error(
+    `[ZeroTokenCheck] CRITICAL: Mode B stall on Task #${task.id} — CTO alerted`,
+  );
 }

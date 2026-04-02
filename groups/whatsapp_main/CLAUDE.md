@@ -216,6 +216,38 @@ When migrating from one system to another (e.g., PHP crons → NanoClaw scheduli
 
 ---
 
+## Self-Learning & Self-Healing
+
+### Write-on-Report Rule
+
+**Every time you report an error, warning, escalation, or system issue to Manoj, you MUST also append a structured entry to `/workspace/group/healing.md`.** Do this in the same response — never as a separate step.
+
+Entry format:
+```
+## [YYYY-MM-DD HH:MM IST] SEVERITY | Coddy
+**Issue:** short description
+**Severity:** low | medium | high | critical
+**Context:** what was happening when the issue occurred
+**Reported to Manoj:** yes | no
+**Status:** open
+**Resolution:** —
+```
+
+When you resolve an issue (auto-fixed silently or after agent delegation), update the entry's Status to `resolved` and add Resolution notes. Then promote the fix to `/workspace/group/learning.md`:
+
+```
+## [YYYY-MM-DD HH:MM IST] PATTERN | Coddy
+**Observed:** symptom that triggered investigation
+**Root cause:** underlying cause
+**Fix applied:** exact steps taken
+**Confidence:** low | medium | high
+**Applicable to:** which bots/components this applies to
+```
+
+The SelfHealing Agent reads both files hourly. Keep entries structured so it can parse them reliably.
+
+---
+
 ## Self-Healing — Auto-Delegate System Issues
 
 A health monitor runs every 30 minutes and wakes you when issues are detected. When woken with health check data, **fix silently without notifying Manoj** unless the issue is truly unresolvable.
@@ -315,31 +347,52 @@ When Coddy needs to update its own nanoclaw code:
 
 ## Model Selection
 
-**Default model for all agents: Haiku 4.5** — lowest cost. Agents must choose a higher model only when the task genuinely requires it. Never use a heavier model out of habit.
+> ⚠️ **SONNET OUTAGE: Sonnet 4.6 is unavailable until 9 AM IST on 2 April 2026. Do NOT use Sonnet until then — it will fail.**
+
+**Two-model system: Haiku 4.5 (default) + Opus 4.6 (complex work).**
 
 ### Available Models
 
 | Model | Shortname | Use When |
 |---|---|---|
-| **Haiku 4.5** | `haiku` | **Default.** Status checks, lookups, summaries, formatting, API calls, simple task updates — anything fast and routine |
-| **Sonnet 4.6** | `sonnet` | Coding, debugging, multi-file edits, analysis, delegation planning, anything that needs solid reasoning |
-| **Opus 4.6** | `opus` | Complex strategy, architecture decisions, OKR planning, deep multi-step reasoning — use sparingly |
+| **Haiku 4.5** | `haiku` | **Default for everything.** Status checks, lookups, summaries, formatting, API calls, simple task updates, quick coding fixes — anything routine |
+| **Opus 4.6** | `opus` | Complex coding, multi-file refactors, architecture decisions, deep analysis, strategy planning — when Haiku isn't enough |
+| **Sonnet 4.6** | `sonnet` | ⛔ UNAVAILABLE until 2 April 9 AM IST. After that, use only when Opus is overkill but Haiku is too weak |
 
 ### How to Choose
 
-Ask yourself before using a heavier model:
-- **Can Haiku do this?** → Use Haiku. Simple API call, status check, short summary — always Haiku.
-- **Does this need real coding or analysis?** → Use Sonnet. Bug fixes, feature implementation, data analysis.
-- **Is this a major strategic decision or complex reasoning chain?** → Use Opus. CEO-level planning, architecture, critical business decisions only.
+1. **Start with Haiku** — it handles 80% of tasks
+2. **Step up to Opus** — for real coding, debugging, architecture, multi-step reasoning
+3. **Never use Sonnet** — until after 2 April 9 AM IST
 
 ### How to Override for a Subagent
 
-When spawning a subagent for a specific task, pass the `model` parameter:
 ```
-Agent tool: model="sonnet", prompt="Fix the authentication bug in src/auth.ts"
-Agent tool: model="opus",   prompt="Design the full microservices migration plan"
 Agent tool: model="haiku",  prompt="Check how many tasks are in_progress right now"
+Agent tool: model="opus",   prompt="Fix the authentication bug and refactor the module"
 ```
+
+---
+
+## Two-CMDCenter Architecture (Pillai Infotech)
+
+Pillai Infotech runs two interconnected NanoClaw instances:
+
+| Instance | Bot | CMDCenter | Role |
+|----------|-----|-----------|------|
+| **com.nanoclaw** (PilluBot) | @PilluBot | cmdcenter.pillaiinfotech.com | Operations — C-suite agents, marketing, sales, analytics, finance, lead gen, post-launch ops |
+| **com.devcmdcenter** (Andy) | @DevCMDBOT | localhost:8083 (DevCMDCenter) | Development — project building, coding, deployment, bug fixes |
+
+### Communication
+- PilluBot delegates dev tasks to Andy via **Bridge API** (`POST http://localhost:8083/api/v1/bridge/tasks`)
+- Andy reports back via callback to CMDCenter
+- Bridge auth: `X-Bridge-Key: pillai_bridge_2026_shared_secret`
+- Both run on same Mac, communicate over localhost
+
+### Filesystem
+All agents have access to `/workspace/extra/Development/DevCMDCenter/`:
+- `DevCMDCenterProject/` — the DevCMDCenter app (PHP/MySQL, port 8083)
+- `Projects/` — all development projects Andy builds
 
 ---
 

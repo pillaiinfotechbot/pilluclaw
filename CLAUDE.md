@@ -6,6 +6,10 @@ Personal Claude assistant. See [README.md](README.md) for philosophy and setup. 
 
 Single Node.js process with skill-based channel system. Channels (WhatsApp, Telegram, Slack, Discord, Gmail) are skills that self-register at startup. Messages route to Claude Agent SDK running in containers (Linux VMs). Each group has isolated filesystem and memory.
 
+## Pillai Infotech Two-Instance Architecture
+
+This instance (com.nanoclaw / PilluBot) handles **operations** — C-suite agents, marketing, sales, analytics, finance, post-launch ops. A sister instance (**com.devcmdcenter / Andy @DevCMDBOT**) handles all **development** — project building, coding, deployment. They communicate via a Bridge API over localhost. See `groups/telegram_cmdcenter/CLAUDE.md` and `groups/whatsapp_main/CLAUDE.md` for full bridge docs.
+
 ## Key Files
 
 | File | Purpose |

@@ -31,7 +31,7 @@ export interface ContainerConfig {
   username?: string; // Telegram username of the registered user
   additionalMounts?: AdditionalMount[];
   timeout?: number; // Default: 300000 (5 minutes)
-  model?: string; // Claude model to use, e.g. 'claude-sonnet-4-6'. Falls back to DEFAULT_MODEL env or sonnet.
+  model?: string; // Claude model to use. Falls back to Haiku 4.5 (claude-haiku-4-5-20251001).
 }
 
 export interface RegisteredGroup {

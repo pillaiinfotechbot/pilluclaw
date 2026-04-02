@@ -504,16 +504,27 @@ function buildTaskPrompt(
   }
 
   // ── Model usage note ──────────────────────────────────────────────────────
-  // Containers use CLAUDE_CODE_OAUTH_TOKEN which maps to claude-sonnet-4-6.
-  // Do NOT call OpenRouter or external AI APIs — use default Claude model.
+  // Default model: Haiku 4.5. Sonnet 4.6 blocked until 2 Apr 9AM IST (usage limit).
+  // Opus 4.6 reserved for complex coding/architecture only.
   const modelNote =
-    `> **Model:** Use your default Claude model (claude-sonnet-4-6 via OAuth). ` +
+    `> **Model:** Your default model is Claude Haiku 4.5 (claude-haiku-4-5-20251001). ` +
     `Do NOT use OpenRouter or external AI APIs unless the task explicitly requires ` +
-    `a non-Claude capability (image generation, video, etc.).\n\n`;
+    `a non-Claude capability (image generation, video, etc.).\n` +
+    `> Sonnet 4.6 is temporarily blocked (usage limit, resets 2 Apr 9AM IST).\n` +
+    `> Use Opus 4.6 only for complex coding, architecture, or deep analysis tasks.\n\n`;
+
+  // ── Data freshness timestamp (anti-staleness) ──────────────────────────────────
+  // Agents should refetch task state if this timestamp is > 2 minutes old
+  const fetchedAt = new Date().toISOString();
+  const timestampNote =
+    `> **Task Data Timestamp:** Fetched at ${fetchedAt}\n` +
+    `> If you make queries to verify task state, ensure you fetch fresh data (use Cache-Control: no-cache headers).\n` +
+    `> If your current time minus this timestamp > 120 seconds, refetch before making verification decisions.\n\n`;
 
   const base =
     identityBlock +
     modelNote +
+    timestampNote +
     `${trigger} 📋 Task #${task.id} [${priority}]: ${task.title}\n\n` +
     (task.description ? `${task.description}\n\n` : '');
 

@@ -55,11 +55,44 @@ Never mark a task `completed` yourself. Your job ends at `executed` (pass) or `p
 
 ---
 
+## Fresh State Verification (Anti-Staleness Protocol)
+
+**CRITICAL FIX for Issue #1125:** Always verify task state freshness when testing.
+
+When fetching task state from CMDCenter API:
+- **Always use cache-busting headers:** Include `Cache-Control: no-cache` in all API requests
+- **Add timestamp validation:** Log the response timestamp and compare with current time
+- **If state seems stale:** (response timestamp > 2 min old) — refetch immediately and verify again
+- **For dependent task checks:** Always use a fresh API call (GET /tasks?status=X&limit=100), not cached snapshots
+
+Example:
+```
+// Fetch with cache-busting header
+const res = await fetch('https://cmdcenterapi.pillaiinfotech.com/api/v1/tasks/123', {
+  headers: {
+    'X-Bot-Key': 'nc_bot_pillai2026',
+    'Cache-Control': 'no-cache'
+  }
+});
+const task = await res.json();
+const fetchTime = new Date();
+console.log(`Fetched task state at ${fetchTime.toISOString()}`);
+
+// Check if response is stale (> 2 min old)
+const stateAge = fetchTime - new Date(task.updated_at);
+if (stateAge > 120000) {
+  console.warn(`STALE STATE: Task state is ${Math.round(stateAge/1000)}s old — refetching fresh`);
+  // Refetch immediately
+}
+```
+
+---
+
 ## Testing Workflow
 
 When triggered with a task to review:
 
-1. `GET /tasks/{id}` — fetch full task details
+1. `GET /tasks/{id}` — fetch full task details **with fresh timestamp verification**
 2. Extract Acceptance Criteria from task description
 3. **If no Acceptance Criteria found:**
    ```
@@ -172,6 +205,8 @@ Check `retry_count` on the task before testing:
 - Always notify PMBot after a pass so sign-off happens promptly
 - Run exploratory testing on ALL critical and high priority tasks — no exceptions
 - Document all findings in the result field — CMDCenter is the knowledge base
+- **ALWAYS verify task state freshness** — fetch with cache-busting headers and validate timestamp
+- **NEVER reuse stale task snapshots** from the initial prompt — always refetch before verification decisions
 
 
 ---
