@@ -93,9 +93,34 @@ function buildVolumeMounts(
       readonly: false,
     });
   } else {
-    // Other groups only get their own folder
+    // Other groups get their own folder.
+    // For task-specific folders (detected by _tTASKID suffix), create a shared
+    // task workspace that all agents in that task can access via /workspace/group.
+    // This allows multi-step tasks where QA Agent can read files created by CTO Agent.
+    // Ref: Task #1131 - QA Agent workspace mount configuration fix
+
+    const isTaskSpecific = group.folder.match(/^(.+?)_t(\d+)$/);
+    let workspaceDir = groupDir;
+
+    if (isTaskSpecific) {
+      const [, baseName, taskId] = isTaskSpecific;
+      // For task-specific folders, mount a shared task workspace at /workspace/group
+      // This ensures all agents (CTO, QA, etc.) in the same task share a common workspace
+      // while maintaining separate session/memory directories.
+      const sharedTaskDir = path.join(GROUPS_DIR, `shared-task-${taskId}`);
+      fs.mkdirSync(sharedTaskDir, { recursive: true });
+      workspaceDir = sharedTaskDir;
+
+      // Also mount the agent-specific folder for isolation if needed
+      mounts.push({
+        hostPath: groupDir,
+        containerPath: '/workspace/group-agent',
+        readonly: false,
+      });
+    }
+
     mounts.push({
-      hostPath: groupDir,
+      hostPath: workspaceDir,
       containerPath: '/workspace/group',
       readonly: false,
     });
@@ -107,6 +132,17 @@ function buildVolumeMounts(
       mounts.push({
         hostPath: globalDir,
         containerPath: '/workspace/global',
+        readonly: true,
+      });
+    }
+
+    // Shared groups directory mount — gives non-main agents read access to all groups' workspaces
+    // This allows QA Agent to access CTO Agent's workspace files and vice versa
+    // Mounted read-only to prevent cross-group modifications
+    if (fs.existsSync(GROUPS_DIR)) {
+      mounts.push({
+        hostPath: GROUPS_DIR,
+        containerPath: '/workspace/groups-shared',
         readonly: true,
       });
     }
