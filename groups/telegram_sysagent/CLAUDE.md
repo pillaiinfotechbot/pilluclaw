@@ -29,6 +29,23 @@ You → read result from ~/.nanoclaw/sysbridge/completed/{id}.json
 
 The bridge IPC directory is mounted at `/workspace/extra/sysbridge/`.
 
+## Mounted Workspaces
+
+| Mount | What it is |
+|---|---|
+| `/workspace/extra/sysbridge/` | Bridge IPC (pending/completed/failed) |
+| `/workspace/extra/Development/` | `/Users/mac/Development` — full read-write access to ALL projects |
+
+Key paths inside `/workspace/extra/Development/`:
+- `pilluclaw/` — pilluclaw (Coddy) source + group workspaces
+- `maddyclaw/` — maddyclaw (Maddy) source + group workspaces
+- `nanoclaw/` — nanoclaw (Andy) source + group workspaces
+- `rubinsapp-nanoclaw/` — Rubinsapp NanoClaw source + group workspaces
+- `pillaicmdcenter/` — CMDCenter PHP project
+- `Rubinsapp/` — Rubinsapp PHP app
+- `DevCMDCenter/` — Andy's CMDCenter project
+- `RubinsappCMDCenter/` — Rubinsapp CMDCenter project
+
 > **Host access:** Mac services are reachable inside the container at `host.docker.internal` (e.g. `host.docker.internal:3306` for MySQL). The bridge handles all host commands — you do not connect directly.
 
 ---
@@ -115,6 +132,35 @@ Timeout: none — wait indefinitely for confirmation-required commands.
 | `start` | `{"service": "mamp\|nanoclaw\|maddyclaw\|devcmdcenter\|rubinsapp\|nginx"}` | No |
 | `stop` | `{"service": "mamp\|nanoclaw\|maddyclaw\|devcmdcenter\|rubinsapp\|nginx"}` | No |
 | `restart` | `{"service": "mamp\|nanoclaw\|maddyclaw\|devcmdcenter\|rubinsapp\|nginx"}` | No |
+
+### Shell (`category: "shell"`)
+
+Host-level shell commands. Use `sudo: true` in payload when elevated privileges are needed. **Every sudo use is audit-logged** to `~/.nanoclaw/sysbridge/sudo-audit.log`.
+
+| Action | Payload | Confirmation Required |
+|--------|---------|----------------------|
+| `mkdir` | `{"path": "/path/to/dir", "sudo": false}` | No |
+| `chmod` | `{"path": "/path", "args": "755", "sudo": false}` | No |
+| `chown` | `{"path": "/path", "args": "mac:staff", "sudo": true}` | No |
+| `ls` | `{"path": "/some/dir"}` | No |
+| `cat` | `{"path": "/some/file"}` | No |
+| `cp` | `{"path": "/src", "dest": "/dst", "sudo": false}` | No |
+| `mv` | `{"path": "/src", "dest": "/dst", "sudo": false}` | No |
+| `ln` | `{"path": "/target", "dest": "/link"}` | No |
+| `whoami` | `{}` | No |
+| `df` | `{}` | No |
+| `du` | `{"path": "/some/dir"}` | No |
+| `which` | `{"path": "nginx"}` | No |
+| `launchctl_load` | `{"path": "~/Library/LaunchAgents/com.foo.plist"}` | No |
+| `launchctl_unload` | `{"path": "~/Library/LaunchAgents/com.foo.plist"}` | No |
+| `launchctl_kickstart` | `{"path": "com.nanoclaw"}` | No |
+| `brew_install` | `{"path": "package-name"}` | No |
+| `brew_services` | `{"path": "service-name", "args": "start\|stop\|restart"}` | No |
+| `rm_rf` | `{"path": "/path/to/remove", "sudo": false}` | **YES** |
+| `kill` | `{"path": "PID", "args": "-9"}` | **YES** |
+| `killall` | `{"path": "process-name"}` | **YES** |
+
+**Sudo audit log:** Every `sudo` command is recorded in `/workspace/extra/sysbridge/sudo-audit.log` with timestamp, who requested it, and what was executed. Manoj can review this at any time.
 
 **Service name → launchctl label mapping:**
 

@@ -284,6 +284,52 @@ GET    /activity?limit=50                       # recent activity stream
 
 ---
 
+## DevCMDCenter Bridge (Cross-Instance Communication)
+
+PilluBot (com.nanoclaw) handles operations. **DevCMDCenter (com.devcmdcenter / Andy)** handles all development work — coding, deployment, project building. They are separate NanoClaw instances that communicate via a Bridge API.
+
+### When to use the bridge
+- Any task involving **code development, bug fixes, new features, project creation, deployment** → delegate to DevCMDCenter
+- Operations, analytics, sales, marketing, finance → handle internally via CMDCenter agents
+
+### Bridge API (DevCMDCenter)
+```
+Base URL: http://localhost:8083/api/v1/bridge
+Auth Header: X-Bridge-Key: pillai_bridge_2026_shared_secret
+
+POST   /tasks              — Send a dev task to Andy's DevCMDCenter
+GET    /tasks              — List bridge tasks (?status=pending&direction=inbound)
+GET    /tasks/:id          — Get bridge task + events
+PATCH  /tasks/:id          — Update bridge task status
+POST   /callback           — Receive completion callback from DevCMDCenter
+```
+
+### Sending a dev task to DevCMDCenter
+```json
+POST http://localhost:8083/api/v1/bridge/tasks
+X-Bridge-Key: pillai_bridge_2026_shared_secret
+
+{
+  "external_id": "cmdcenter-task-123",
+  "source": "cmdcenter",
+  "title": "Build login page for aichatbot",
+  "description": "Full requirements here...",
+  "priority": "high",
+  "assigned_agent": "DevBot",
+  "payload": { "project": "aichatbot", "steps": [...] },
+  "callback_url": "https://cmdcenterapi.pillaiinfotech.com/api/v1/bridge/callback"
+}
+```
+
+DevCMDCenter picks up the task, Andy's agents build it, and on completion a callback is sent to the `callback_url` with status and result.
+
+### Filesystem Access
+All agents have read-write access to `/workspace/extra/Development/DevCMDCenter/`:
+- `/workspace/extra/Development/DevCMDCenter/DevCMDCenterProject/` — the DevCMDCenter app itself
+- `/workspace/extra/Development/DevCMDCenter/Projects/` — all development projects
+
+---
+
 ## What You Must NEVER Do
 
 - Execute a task that belongs to a sub-agent
@@ -337,3 +383,46 @@ curl -s -X POST "https://cmdcenterapi.pillaiinfotech.com/api/v1/tasks" \
 - Financial anomaly > $50
 
 Refer to `/self-healing` skill for full reference.
+
+
+---
+
+## Environment & Host Delegation
+
+### Development Environment
+- **Local development uses MAMP on macOS** — NOT Docker containers
+- CMDCenter backend: PHP 8.x served via MAMP Apache on port 8888
+- Database: MySQL via MAMP on port 8889
+- Frontend: Static HTML/JS served directly, no build step
+- Production: cPanel hosting, deployed via FTP from GitHub Actions
+
+### SYSAgent — Host-Level Operations
+You run inside a NanoClaw Docker container. You do **NOT** have direct access to the macOS host filesystem, Docker, launchctl, or system services.
+
+**If a task requires host-level access, delegate it to SYSAgent** — do NOT escalate to Manoj Pillai or create "HOST EXECUTION REQUIRED" tasks.
+
+SYSAgent (`virtual:sysagent`) can execute on the Mac host:
+- File system operations (read/write/create anywhere on macOS)
+- Docker commands (docker, docker-compose)
+- Service management (launchctl start/stop/restart)
+- MAMP control (start/stop Apache, MySQL)
+- Git operations on any local repository
+- Shell commands with sudo access (audited)
+- Process management (kill, restart bots)
+
+**How to delegate:**
+```
+POST /tasks
+{
+  "title": "SYSAgent: <what needs to happen>",
+  "assigned_agent": "SYSAgent",
+  "priority": "high",
+  "description": "Host-level action required: <details>"
+}
+```
+
+**NEVER:**
+- Create tasks titled "HOST EXECUTION REQUIRED" assigned to Manoj
+- Create escalation tasks about Docker volume mounts
+- Assume something is broken because you cannot access /workspace/extra/Development
+- Create multiple follow-up escalation tasks about the same blocker

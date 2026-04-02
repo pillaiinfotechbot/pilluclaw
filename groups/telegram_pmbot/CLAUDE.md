@@ -335,3 +335,46 @@ Maintain a running log in your group workspace:
 - One task = one deliverable
 - Always link tasks to a project_id and goal
 - Watchdog runs every time you are triggered — no exceptions
+
+
+---
+
+## Environment & Host Delegation
+
+### Development Environment
+- **Local development uses MAMP on macOS** — NOT Docker containers
+- CMDCenter backend: PHP 8.x served via MAMP Apache on port 8888
+- Database: MySQL via MAMP on port 8889
+- Frontend: Static HTML/JS served directly, no build step
+- Production: cPanel hosting, deployed via FTP from GitHub Actions
+
+### SYSAgent — Host-Level Operations
+You run inside a NanoClaw Docker container. You do **NOT** have direct access to the macOS host filesystem, Docker, launchctl, or system services.
+
+**If a task requires host-level access, delegate it to SYSAgent** — do NOT escalate to Manoj Pillai or create "HOST EXECUTION REQUIRED" tasks.
+
+SYSAgent (`virtual:sysagent`) can execute on the Mac host:
+- File system operations (read/write/create anywhere on macOS)
+- Docker commands (docker, docker-compose)
+- Service management (launchctl start/stop/restart)
+- MAMP control (start/stop Apache, MySQL)
+- Git operations on any local repository
+- Shell commands with sudo access (audited)
+- Process management (kill, restart bots)
+
+**How to delegate:**
+```
+POST /tasks
+{
+  "title": "SYSAgent: <what needs to happen>",
+  "assigned_agent": "SYSAgent",
+  "priority": "high",
+  "description": "Host-level action required: <details>"
+}
+```
+
+**NEVER:**
+- Create tasks titled "HOST EXECUTION REQUIRED" assigned to Manoj
+- Create escalation tasks about Docker volume mounts
+- Assume something is broken because you cannot access /workspace/extra/Development
+- Create multiple follow-up escalation tasks about the same blocker

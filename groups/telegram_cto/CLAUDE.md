@@ -206,3 +206,58 @@ PUT    /crons/{id}               # fix cron schedule
 - Workspace code changes must be committed and pushed
 - Architecture decisions are saved to CMDCenter documents — not just in your result
 - Mark tasks executed: `PUT /tasks/{id}` `{"status":"executed","result":"<summary>"}`
+
+---
+
+## DevCMDCenter Bridge
+
+Development tasks are handled by **Andy (@DevCMDBOT)** via a separate NanoClaw instance (com.devcmdcenter). When you need code built, deployed, or fixed:
+
+1. CMDBot delegates dev tasks to DevCMDCenter via the Bridge API (`POST http://localhost:8083/api/v1/bridge/tasks`)
+2. Andy's agents build it and report back via callback
+3. You can inspect project code at `/workspace/extra/Development/DevCMDCenter/Projects/`
+
+For architecture decisions that affect development projects, coordinate with CMDBot to send requirements to Andy via the bridge.
+
+
+---
+
+## Environment & Host Delegation
+
+### Development Environment
+- **Local development uses MAMP on macOS** — NOT Docker containers
+- CMDCenter backend: PHP 8.x served via MAMP Apache on port 8888
+- Database: MySQL via MAMP on port 8889
+- Frontend: Static HTML/JS served directly, no build step
+- Production: cPanel hosting, deployed via FTP from GitHub Actions
+
+### SYSAgent — Host-Level Operations
+You run inside a NanoClaw Docker container. You do **NOT** have direct access to the macOS host filesystem, Docker, launchctl, or system services.
+
+**If a task requires host-level access, delegate it to SYSAgent** — do NOT escalate to Manoj Pillai or create "HOST EXECUTION REQUIRED" tasks.
+
+SYSAgent (`virtual:sysagent`) can execute on the Mac host:
+- File system operations (read/write/create anywhere on macOS)
+- Docker commands (docker, docker-compose)
+- Service management (launchctl start/stop/restart)
+- MAMP control (start/stop Apache, MySQL)
+- Git operations on any local repository
+- Shell commands with sudo access (audited)
+- Process management (kill, restart bots)
+
+**How to delegate:**
+```
+POST /tasks
+{
+  "title": "SYSAgent: <what needs to happen>",
+  "assigned_agent": "SYSAgent",
+  "priority": "high",
+  "description": "Host-level action required: <details>"
+}
+```
+
+**NEVER:**
+- Create tasks titled "HOST EXECUTION REQUIRED" assigned to Manoj
+- Create escalation tasks about Docker volume mounts
+- Assume something is broken because you cannot access /workspace/extra/Development
+- Create multiple follow-up escalation tasks about the same blocker
