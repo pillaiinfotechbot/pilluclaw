@@ -9,12 +9,16 @@
  * CMDCenter via the API, not via a chat message).
  */
 
-import { Channel } from '../types.js';
+import { Channel, OnInboundMessage, OnChatMetadata } from '../types.js';
 import { logger } from '../logger.js';
-import { registerChannel } from './registry.js';
+import { registerChannel, ChannelOpts } from './registry.js';
 
 class VirtualChannel implements Channel {
   name = 'virtual';
+
+  // VirtualChannel doesn't use ChannelOpts (no external platform needed)
+  // but accepts them for type compatibility with Channel interface
+  constructor(_opts?: ChannelOpts) {}
 
   async connect(): Promise<void> {
     logger.info('VirtualChannel: ready (handles virtual:xxx JIDs)');
@@ -46,4 +50,4 @@ class VirtualChannel implements Channel {
   }
 }
 
-registerChannel('virtual', () => new VirtualChannel());
+registerChannel('virtual', (opts: ChannelOpts) => new VirtualChannel(opts));
