@@ -226,14 +226,6 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
 
     const registeredGroups = getAllRegisteredGroups();
 
-    // Build folder → base JID reverse lookup
-    const folderToJid = new Map<string, string>();
-    for (const [jid, groups] of Object.entries(registeredGroups)) {
-      for (const group of groups) {
-        folderToJid.set(group.folder, jid);
-      }
-    }
-
     // Sort tasks by weighted priority score — highest urgency first
     const sortedTasks = [...tasks].sort((a, b) => scoreTask(b) - scoreTask(a));
 
@@ -260,15 +252,6 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
 
       const folder = AGENT_TO_FOLDER[agentName];
       if (!folder) continue;
-
-      const baseJid = folderToJid.get(folder);
-      if (!baseJid) {
-        logger.warn(
-          { agentName, folder },
-          'CMDCenter poller: no JID for folder',
-        );
-        continue;
-      }
 
       if (TERMINAL_STATUSES.has(task.status)) continue;
       if (
@@ -314,7 +297,10 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
       // rather than queuing serially behind a shared virtual:cto JID.
       // JID format:  virtual:cto:task-821  (VirtualChannel owns all virtual:* JIDs)
       // Folder format: telegram_cto_t821   (must match ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$)
-      const taskJid = `${baseJid}:task-${task.id}`;
+      // CRITICAL FIX: Extract agent key from folder name (e.g. "cto" from "telegram_cto")
+      // Do NOT use folderToJid.get(folder) — that returns Telegram JID, not virtual JID
+      const agentKey = folder.replace(/^telegram_/, '');
+      const taskJid = `virtual:${agentKey}:task-${task.id}`;
       const taskFolder = `${folder}_t${task.id}`;
 
       // Dynamically register the task-specific group so processGroupMessages
@@ -376,7 +362,6 @@ async function pollOnce(queue: GroupQueue): Promise<void> {
           agentName,
           role,
           folder,
-          baseJid,
           taskJid,
           taskFolder,
         },
