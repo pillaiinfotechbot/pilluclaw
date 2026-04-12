@@ -96,3 +96,11 @@ groups/telegram_chro/*
 !groups/telegram_cmo/CLAUDE.md
 !groups/telegram_cfo/CLAUDE.md
 !groups/telegram_chro/CLAUDE.md
+
+# Website chat agents
+!groups/website_maddy/
+!groups/website_manu/
+groups/website_maddy/*
+groups/website_manu/*
+!groups/website_maddy/CLAUDE.md
+!groups/website_manu/CLAUDE.md
