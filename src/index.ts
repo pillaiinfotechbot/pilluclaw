@@ -62,9 +62,18 @@ import {
 import { startSchedulerLoop } from './task-scheduler.js';
 import { startCmdCenterPoller } from './cmdcenter-poller.js';
 import { startCmdCenterHeartbeat } from './cmdcenter-heartbeat.js';
+import { startWebsiteChatPoller } from './website-chat-poller.js';
 import { reportAgentActive, reportAgentIdle } from './cmdcenter-sync.js';
 import { Channel, NewMessage, RegisteredGroup } from './types.js';
 import { logger } from './logger.js';
+import { startWorkflowRuntime } from './workflow-runtime.js';
+import { actionRegistry } from './action-registry.js';
+import {
+  integrationRegistry,
+  registerCoreIntegrations,
+} from './integrations/registry.js';
+import { SendTelegramAction } from './actions/send-telegram.js';
+import { NotifyCmdCenterAction } from './actions/notify-cmdcenter.js';
 
 // Re-export for backwards compatibility during refactor
 export { escapeXml, formatMessages } from './router.js';
@@ -774,11 +783,23 @@ async function main(): Promise<void> {
   // Bots cannot receive their own Telegram messages via getUpdates, so
   // the PHP heartbeat's Bot API delivery is invisible to nanoclaw.
   // This poller injects those tasks directly into the message queue.
-  startCmdCenterPoller(queue, registerDynamicGroup);
+  // DISABLED: CMD Center agent poller and heartbeat — agents removed, only chatbot active
+  // startCmdCenterPoller(queue, registerDynamicGroup);
+  // startCmdCenterHeartbeat();
 
-  // Run CMDCenter agent heartbeat every 5 minutes.
-  // Checks agent health, dispatches pending tasks, monitors webhooks.
-  startCmdCenterHeartbeat();
+  // Poll manojmadhavan.com & pillaiinfotech.com for visitor chat messages.
+  // Answers via `claude -p` CLI (same pattern as Rubinsapp AppCenter chat).
+  startWebsiteChatPoller();
+
+  // ── Workflow Engine (YAML → Tool execution, REST-API driven) ─────────────────
+  // WHO: pilluclaw as the workflow execution engine
+  // WHY: CMDCenter fires events → queues runs → pilluclaw executes them
+  // HOW: 30s poll, claim runs, execute YAML steps as Tools, report back via API
+  registerCoreIntegrations(integrationRegistry);
+  actionRegistry.configure({ integrations: integrationRegistry });
+  actionRegistry.register(new SendTelegramAction());
+  actionRegistry.register(new NotifyCmdCenterAction());
+  startWorkflowRuntime(actionRegistry);
 
   startIpcWatcher({
     sendMessage: (jid, text) => {
